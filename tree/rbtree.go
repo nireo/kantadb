@@ -1,4 +1,4 @@
-package main
+package tree
 
 import "bytes"
 
@@ -65,6 +65,46 @@ func (tree *Tree) Insert(key, val []byte) {
 	}
 
 	tree.insert1(insertNode)
+	tree.size++
+}
+
+func (tree *Tree) Put(key, value []byte) {
+	var insertedNode *Node
+	if tree.Root == nil {
+		tree.Root = &Node{Key: key, Value: value, Color: red}
+		insertedNode = tree.Root
+	} else {
+		node := tree.Root
+		loop := true
+		for loop {
+			compare := bytes.Compare(key, node.Key)
+			switch {
+			case compare == 0:
+				node.Key = key
+				node.Value = value
+				return
+			case compare < 0:
+				if node.Left == nil {
+					node.Left = &Node{Key: key, Value: value, Color: red}
+					insertedNode = node.Left
+					loop = false
+				} else {
+					node = node.Left
+				}
+			case compare > 0:
+				if node.Right == nil {
+					node.Right = &Node{Key: key, Value: value, Color: red}
+					insertedNode = node.Right
+					loop = false
+				} else {
+					node = node.Right
+				}
+			}
+		}
+		insertedNode.Parent = node
+	}
+
+	tree.insert1(insertedNode)
 	tree.size++
 }
 
@@ -142,7 +182,6 @@ func (tree *Tree) insert2(node *Node) {
 	if getColor(node.Parent) == black {
 		return
 	}
-
 	tree.insert3(node)
 }
 
@@ -167,7 +206,6 @@ func (tree *Tree) insert4(node *Node) {
 		tree.rRotate(node.Parent)
 		node = node.Right
 	}
-
 	tree.insert5(node)
 }
 
@@ -175,7 +213,6 @@ func (tree *Tree) insert5(node *Node) {
 	node.Parent.Color = black
 	grandparent := node.grandparent()
 	grandparent.Color = red
-
 	if node == node.Parent.Left && node.Parent == grandparent.Left {
 		tree.rRotate(grandparent)
 	} else if node == node.Parent.Right && node.Parent == grandparent.Right {
@@ -348,4 +385,8 @@ func (node *Node) max() *Node {
 	}
 
 	return node
+}
+
+func (tree *Tree) Size() int {
+	return tree.size
 }
