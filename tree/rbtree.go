@@ -68,6 +68,42 @@ func (tree *Tree) Insert(key, val []byte) {
 	tree.size++
 }
 
+func (tree *Tree) Remove(key []byte) {
+	var child *Node
+	node := tree.find(key)
+	if node == nil {
+		return
+	}
+
+	if node.Left != nil && node.Right != nil {
+		mx := node.Left.max()
+		node.Key = mx.Key
+		node.Value = mx.Value
+
+		node = mx
+	}
+
+	if node.Left == nil || node.Right == nil {
+		if node.Right == nil {
+			child = node.Left
+		} else {
+			child = node.Right
+		}
+
+		if node.Color == black {
+			node.Color = getColor(child)
+			tree.delete1(node)
+		}
+
+		tree.replace(node, child)
+		if node.Parent == nil && child != nil {
+			child.Color = black
+		}
+	}
+
+	tree.size--
+}
+
 func (tree *Tree) Get(key []byte) (value []byte, ok bool) {
 	node := tree.find(key)
 	if node != nil {
@@ -217,4 +253,99 @@ func (tree *Tree) replace(old *Node, new *Node) {
 	if new != nil {
 		new.Parent = old.Parent
 	}
+}
+
+func (tree *Tree) delete1(node *Node) {
+	if node.Parent == nil {
+		return
+	}
+
+	tree.delete2(node)
+}
+
+func (tree *Tree) delete2(node *Node) {
+	sibling := node.sibling()
+	if getColor(sibling) == red {
+		node.Parent.Color = red
+		sibling.Color = black
+		if node == node.Parent.Left {
+			tree.lRotate(node.Parent)
+		} else {
+			tree.rRotate(node.Parent)
+		}
+	}
+
+	tree.delete3(node)
+}
+
+func (tree *Tree) delete3(node *Node) {
+	sibling := node.sibling()
+	if getColor(node.Parent) == black &&
+		getColor(sibling) == black &&
+		getColor(sibling.Left) == black &&
+		getColor(sibling.Right) == black {
+		sibling.Color = red
+
+		tree.delete1(node.Parent)
+	} else {
+		tree.delete4(node)
+	}
+}
+
+func (tree *Tree) delete4(node *Node) {
+	sibling := node.sibling()
+	if getColor(node.Parent) == red &&
+		getColor(sibling) == black &&
+		getColor(sibling.Left) == black &&
+		getColor(sibling.Right) == black {
+		sibling.Color = red
+		node.Parent.Color = black
+	} else {
+		tree.delete5(node)
+	}
+}
+
+func (tree *Tree) delete5(node *Node) {
+	sibling := node.sibling()
+	if node == node.Parent.Left &&
+		getColor(sibling) == black &&
+		getColor(sibling.Left) == red &&
+		getColor(sibling.Right) == black {
+		sibling.Color = red
+		sibling.Left.Color = black
+		tree.rRotate(sibling)
+	} else if node == node.Parent.Right &&
+		getColor(sibling) == black &&
+		getColor(sibling.Right) == red &&
+		getColor(sibling.Left) == black {
+		sibling.Color = red
+		sibling.Right.Color = black
+		tree.lRotate(sibling)
+	}
+	tree.deleteCase6(node)
+}
+
+func (tree *Tree) deleteCase6(node *Node) {
+	sibling := node.sibling()
+	sibling.Color = getColor(node.Parent)
+	node.Parent.Color = black
+	if node == node.Parent.Left && getColor(sibling.Right) == red {
+		sibling.Right.Color = black
+		tree.lRotate(node.Parent)
+	} else if getColor(sibling.Left) == red {
+		sibling.Left.Color = black
+		tree.rRotate(node.Parent)
+	}
+}
+
+func (node *Node) max() *Node {
+	if node == nil {
+		return nil
+	}
+
+	for node.Right != nil {
+		node = node.Right
+	}
+
+	return node
 }
