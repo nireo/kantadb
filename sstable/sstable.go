@@ -1,6 +1,8 @@
 package sstable
 
-import "github.com/nireo/kantadb/tree"
+import (
+	"github.com/emirpasic/gods/trees/redblacktree"
+)
 
 type Config struct {
 	bufferSize int
@@ -8,7 +10,7 @@ type Config struct {
 }
 
 type SSTable struct {
-	data *tree.Tree
+	data *redblacktree.Tree
 	conf *Config
 }
 
