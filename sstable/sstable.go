@@ -4,25 +4,14 @@ import (
 	"github.com/emirpasic/gods/trees/redblacktree"
 )
 
-type Config struct {
-	bufferSize int
-	filename   string
-}
-
 type SSTable struct {
-	data *redblacktree.Tree
-	conf *Config
+	Tree     *redblacktree.Tree
+	Filename string // the file in which the sstable is stored
 }
 
-func NewSSTable(config *Config) *SSTable {
-	if config.bufferSize == 0 {
-		config.bufferSize = 4096
+func NewSSTable(name string) *SSTable {
+	return &SSTable{
+		Tree:     redblacktree.NewWithStringComparator(),
+		Filename: name,
 	}
-	s := SSTable{
-		conf: config,
-	}
-
-	// implement rebuilding the index
-
-	return &s
 }
