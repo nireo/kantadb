@@ -3,6 +3,7 @@ package entries
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
 )
 
 type EntryType byte
@@ -45,14 +46,13 @@ func EntryFromBytes(bytes []byte) (*Entry, error) {
 		Key:   string(bytes[9 : 9+klen]),
 	}
 
-	switch tombstone {
-	case true:
+	if tombstone {
 		entry.Type = Tombstone
-	case false:
+	} else {
 		entry.Type = KVPair
 	}
 
-	return nil, nil
+	return entry, nil
 }
 
 // ToBinary converts the keys into the binary representation in bytes
@@ -80,4 +80,18 @@ func WriteEntriesToBinary(entries []*Entry) []byte {
 	}
 
 	return res
+}
+
+// AppendToFile adds the given entry to the end of a specified file
+func (e *Entry) AppendToFile(filename string) error {
+	file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+
+	if _, err := file.Write(e.ToBinary()); err != nil {
+		return err
+	}
+
+	return nil
 }
