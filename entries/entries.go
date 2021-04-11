@@ -54,3 +54,30 @@ func EntryFromBytes(bytes []byte) (*Entry, error) {
 
 	return nil, nil
 }
+
+// ToBinary converts the keys into the binary representation in bytes
+func (e *Entry) ToBinary() []byte {
+	klenBuffer := make([]byte, 4)
+	vlenBuffer := make([]byte, 4)
+	binary.BigEndian.PutUint32(klenBuffer, uint32(len([]byte(e.Key))))
+	binary.BigEndian.PutUint32(vlenBuffer, uint32(len([]byte(e.Value))))
+
+	data := make([]byte, 1)
+	data = append(data, klenBuffer...)
+	data = append(data, vlenBuffer...)
+	data = append(data, []byte(e.Key)...)
+	data = append(data, []byte(e.Value)...)
+
+	return data
+}
+
+// WriteEntriesToBinary takes in a a list of entries and returns a complete byte buffer that contains
+// all of the entries in the binary format.
+func WriteEntriesToBinary(entries []*Entry) []byte {
+	var res []byte
+	for _, entry := range entries {
+		res = append(res, entry.ToBinary()...)
+	}
+
+	return res
+}
