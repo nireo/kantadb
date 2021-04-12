@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/emirpasic/gods/trees/redblacktree"
+	"github.com/nireo/kantadb/entries"
 )
 
 type SSTable struct {
@@ -25,4 +26,29 @@ func (ss *SSTable) FillTree() {
 		return
 	}
 	defer f.Close()
+}
+
+func (ss *SSTable) Get(key string) (string, bool) {
+	// open the file
+	file, err := os.OpenFile(ss.Filename, os.O_RDONLY, 0600)
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+
+	// create a entry reader to read all values from the files
+	entryScanner := entries.InitScanner(file, 4096)
+
+	for {
+		entry, err := entryScanner.ReadNext()
+		if err != nil {
+			break
+		}
+
+		if entry.Key == key {
+			return entry.Key, true
+		}
+	}
+
+	return "", false
 }

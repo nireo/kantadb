@@ -1,7 +1,10 @@
 package kantadb
 
 import (
+	"fmt"
+	"io/ioutil"
 	"os"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -42,18 +45,20 @@ func NewDB(storageDir string) *DB {
 	}
 }
 
-// QueuesToSSTables write the in-memory into sstables.
-func (db *DB) QueuesToSSTables() {
-
-}
-
 // Run starts the db service and starts checking for queue and other things
-func (db *DB) Run() {
+func (db *DB) Run() error {
 	db.Alive = true
+
+	// parse the starting directory for table files containing sstables
+	if err := db.parseSSTableDirectory(); err != nil {
+		return fmt.Errorf("could not parse sstables or create directory for them: %s", err)
+	}
 
 	// start checking for in-memory tables in the queue and start converting in-memory
 	// tables into sstables.
-	go db.QueuesToSSTables()
+	go db.handleQueue()
+
+	return nil
 }
 
 // Get tries to find the wanted key from the in-memory table, and if not found checks
@@ -65,6 +70,17 @@ func (db *DB) Get(key string) (string, bool) {
 		// find from the write queue
 		for _, mem := range db.MEMQueue {
 			val, ok = mem.Get(key)
+			if ok {
+				return val, ok
+			}
+		}
+	}
+
+	// if that value still hasn't been found search in the sstables.
+	if !ok {
+		// note that we start searching from the newest sstable
+		for _, st := range db.SSTables {
+			val, ok = st.Get(key)
 			if ok {
 				return val, ok
 			}
@@ -97,7 +113,7 @@ func (db *DB) Put(key, val string) {
 
 // HandleQueue takes care of emptying the queue and writing the queue into
 // sstables.
-func (db *DB) HandleQueue() {
+func (db *DB) handleQueue() {
 	for db.Alive {
 		// don't add new tables while dumping the queues to disk
 		db.queueMutex.Lock()
@@ -134,4 +150,35 @@ func (db *DB) HandleQueue() {
 		db.queueMutex.Unlock()
 		time.Sleep(time.Second)
 	}
+}
+
+// parseSSTableDirectory finds all of the sstable files and adds them to the list.
+func (db *DB) parseSSTableDirectory() error {
+	paths, err := ioutil.ReadDir(db.ssdir)
+	if err != nil {
+		// create the ss table directory
+
+		if err := os.Mkdir(db.ssdir, 0600); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	var pathStrings []string
+	for _, path := range paths {
+		pathStrings = append(pathStrings, path.Name())
+	}
+
+	sort.Strings(pathStrings)
+
+	var sstlbs []*sstable.SSTable
+	for _, path := range pathStrings {
+		sst := sstable.NewSSTable(path)
+		sstlbs = append([]*sstable.SSTable{sst}, sstlbs...)
+	}
+
+	// all of the tables are parsed now we need to create some kind of
+	// sparsing index for all of the sstables, but that will come later.
+	return nil
 }

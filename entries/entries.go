@@ -33,6 +33,7 @@ type EntryScanner struct {
 // with a null-byte the entry is considered a tombstone entry.
 func EntryFromBytes(bytes []byte) (*Entry, error) {
 	// the bytes dont have the encoded values
+	// the first byte is empty which is why we need
 	if len(bytes) < 9 {
 		return nil, fmt.Errorf("data is too short. got=%d", len(bytes))
 	}
