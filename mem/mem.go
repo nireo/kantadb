@@ -1,6 +1,11 @@
 package mem
 
-import "sync"
+import (
+	"sort"
+	"sync"
+
+	"github.com/nireo/kantadb/entries"
+)
 
 // I think this is the most simple way to represent in-memory values instead of a tree,
 // since this is probably more performant and over all more idiomatic. We can also add
@@ -46,4 +51,22 @@ func New() *MEM {
 	}
 }
 
-// TODO: write values into a log for fault tolerance
+// ConvertIntoEntires converts the database key-value pairs into entries which are
+// then used to write values to the disk
+func (m *MEM) ConvertIntoEntries() []*entries.Entry {
+	var entrs []*entries.Entry
+	for key, value := range m.kvs {
+		entrs = append(entrs, &entries.Entry{
+			Key:   key,
+			Value: value,
+			Type:  entries.KVPair,
+		})
+	}
+
+	// sort them
+	sort.Slice(entrs, func(i, j int) bool {
+		return entrs[i].Key < entrs[j].Key
+	})
+
+	return entrs
+}

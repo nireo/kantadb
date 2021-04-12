@@ -1,7 +1,10 @@
 package kantadb
 
 import (
+	"os"
+	"strconv"
 	"sync"
+	"time"
 
 	"github.com/nireo/kantadb/mem"
 	"github.com/nireo/kantadb/sstable"
@@ -9,8 +12,11 @@ import (
 
 // DB represents the database as a whole.
 type DB struct {
-	Alive    bool
-	MEM      *mem.MEM
+	Alive bool
+	MEM   *mem.MEM
+
+	// sstables
+	ssMutex  sync.Mutex
 	SSTables []*sstable.SSTable
 
 	// configuration
@@ -32,6 +38,7 @@ func NewDB(storageDir string) *DB {
 		ssdir:      storageDir,
 		queueMutex: sync.Mutex{},
 		maxMEMsize: 1000,
+		ssMutex:    sync.Mutex{},
 	}
 }
 
@@ -86,4 +93,45 @@ func (db *DB) Put(key, val string) {
 
 	// Write key into the plain in-memory table.
 	db.MEM.Put(key, val)
+}
+
+// HandleQueue takes care of emptying the queue and writing the queue into
+// sstables.
+func (db *DB) HandleQueue() {
+	for db.Alive {
+		// don't add new tables while dumping the queues to disk
+		db.queueMutex.Lock()
+
+		// start from the end because the first element in the array contains the
+		// newest items. So we want to add priority to older tables.
+		for i := len(db.MEMQueue) - 1; i >= 0; i++ {
+			timestamp := time.Now().UnixNano()
+
+			db.ssMutex.Lock()
+			sst := sstable.NewSSTable(strconv.FormatInt(timestamp, 10) + ".tb")
+
+			// create the new file
+			file, err := os.Create(db.ssdir + "/" + sst.Filename)
+			if err != nil {
+				// error happended skip this and try again on the next iteration
+				continue
+			}
+			defer file.Close()
+
+			entrs := db.MEMQueue[i].ConvertIntoEntries()
+			for _, e := range entrs {
+				file.Write(e.ToBinary())
+			}
+
+			// now just append the newest sstable to the beginning of the queue
+			db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
+			db.ssMutex.Unlock()
+		}
+
+		// clean up the queue since we went through each item
+		db.MEMQueue = []*mem.MEM{}
+
+		db.queueMutex.Unlock()
+		time.Sleep(time.Second)
+	}
 }

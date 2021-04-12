@@ -10,6 +10,24 @@ import (
 	"github.com/nireo/kantadb/entries"
 )
 
+func checkToEntries(t *testing.T, e1, e2 *entries.Entry) bool {
+	t.Helper()
+
+	if e1.Key != e2.Key {
+		t.Errorf("got the wrong key. want=%q got=%q", e1.Key, e2.Key)
+	}
+
+	if e1.Value != e2.Value {
+		t.Errorf("got the wrong value. want=%q got=%q", e1.Value, e2.Value)
+	}
+
+	if e1.Type != e2.Type {
+		t.Errorf("the type doesn't match. want=%d got=%d", e1.Type, e2.Type)
+	}
+
+	return true
+}
+
 func TestEntryBinary(t *testing.T) {
 	e := &entries.Entry{
 		Type:  entries.KVPair,
@@ -109,15 +127,46 @@ func TestAppendToFileAndParse(t *testing.T) {
 		t.Fatalf("error parsing content from temp file")
 	}
 
-	if testEntry.Key != e.Key {
-		t.Errorf("got the wrong key. want=%q got=%q", e.Key, testEntry.Key)
+	if ok := checkToEntries()
+}
+
+func TestEntryScanner(t *testing.T) {
+	e := &entries.Entry{
+		Type:  entries.KVPair,
+		Value: "testval",
+		Key:   "testkey",
 	}
 
-	if testEntry.Key != e.Key {
-		t.Errorf("got the wrong key. want=%q got=%q", e.Key, testEntry.Key)
+	tmp, err := ioutil.TempFile(os.TempDir(), "testappend-")
+	if err != nil {
+		t.Fatalf("error creating temporary file")
 	}
 
-	if testEntry.Value != e.Value {
-		t.Errorf("got the wrong value. want=%q got=%q", e.Value, testEntry.Value)
+	// add to the file
+	if err := e.AppendToFile(tmp.Name()); err != nil {
+		t.Fatalf("error appending entry content to file")
+	}
+
+	// add another entry for testing
+	if err := e.AppendToFile(tmp.Name()); err != nil {
+		t.Fatalf("error appending entry content to file")
+	
+
+	newFileRead, err := os.OpenFile(tmp.Name(), os.O_RDONLY, 0600)
+	if err != nil {
+		t.Fatalf("could not open temp file for reading")
+	}
+
+	// create a new entry parser
+	reader := entries.InitScanner(newFileRead, 4096)
+
+	first, err := reader.ReadNext()
+	if err != nil {
+		t.Fatalf("error parsing the first value: %s", err)
+	}
+
+	second, err := reader.ReadNext()
+	if err != nil {
+		t.Fatalf("error parsing the second value: %s", err)
 	}
 }
