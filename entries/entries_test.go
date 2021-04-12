@@ -10,7 +10,7 @@ import (
 	"github.com/nireo/kantadb/entries"
 )
 
-func checkToEntries(t *testing.T, e1, e2 *entries.Entry) bool {
+func checkEntries(t *testing.T, e1, e2 *entries.Entry) {
 	t.Helper()
 
 	if e1.Key != e2.Key {
@@ -24,8 +24,6 @@ func checkToEntries(t *testing.T, e1, e2 *entries.Entry) bool {
 	if e1.Type != e2.Type {
 		t.Errorf("the type doesn't match. want=%d got=%d", e1.Type, e2.Type)
 	}
-
-	return true
 }
 
 func TestEntryBinary(t *testing.T) {
@@ -66,25 +64,14 @@ func TestBytesParse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not parse entry data from bytes")
 	}
-
-	if testEntry.Key != e.Key {
-		t.Errorf("got the wrong key. want=%q got=%q", e.Key, testEntry.Key)
-	}
-
-	if testEntry.Key != e.Key {
-		t.Errorf("got the wrong key. want=%q got=%q", e.Key, testEntry.Key)
-	}
-
-	if testEntry.Value != e.Value {
-		t.Errorf("got the wrong value. want=%q got=%q", e.Value, testEntry.Value)
-	}
+	checkEntries(t, testEntry, e)
 }
 
 func TestTombstone(t *testing.T) {
 	e := &entries.Entry{
 		Type:  entries.Tombstone,
-		Value: "testval",
-		Key:   "\x00",
+		Value: "\x00",
+		Key:   "testkey",
 	}
 
 	binBytes := e.ToBinary()
@@ -93,17 +80,14 @@ func TestTombstone(t *testing.T) {
 		t.Fatalf("could not parse entry data from bytes")
 	}
 
-	if testEntry.Key != e.Key {
-		t.Errorf("got the wrong key. want=%q got=%q", e.Key, testEntry.Key)
-	}
-
+	checkEntries(t, testEntry, e)
 }
 
 func TestAppendToFileAndParse(t *testing.T) {
 	e := &entries.Entry{
-		Type:  entries.Tombstone,
+		Type:  entries.KVPair,
 		Value: "testval",
-		Key:   "\x00",
+		Key:   "testkey",
 	}
 
 	tmp, err := ioutil.TempFile(os.TempDir(), "testappend-")
@@ -127,7 +111,7 @@ func TestAppendToFileAndParse(t *testing.T) {
 		t.Fatalf("error parsing content from temp file")
 	}
 
-	if ok := checkToEntries()
+	checkEntries(t, e, testEntry)
 }
 
 func TestEntryScanner(t *testing.T) {
@@ -150,15 +134,9 @@ func TestEntryScanner(t *testing.T) {
 	// add another entry for testing
 	if err := e.AppendToFile(tmp.Name()); err != nil {
 		t.Fatalf("error appending entry content to file")
-	
-
-	newFileRead, err := os.OpenFile(tmp.Name(), os.O_RDONLY, 0600)
-	if err != nil {
-		t.Fatalf("could not open temp file for reading")
 	}
-
 	// create a new entry parser
-	reader := entries.InitScanner(newFileRead, 4096)
+	reader := entries.InitScanner(tmp, 4096)
 
 	first, err := reader.ReadNext()
 	if err != nil {
@@ -169,4 +147,7 @@ func TestEntryScanner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error parsing the second value: %s", err)
 	}
+
+	checkEntries(t, first, e)
+	checkEntries(t, second, e)
 }

@@ -134,7 +134,7 @@ func InitScanner(file *os.File, readSize int) *EntryScanner {
 	s.Buffer(buffer, bufio.MaxScanTokenSize)
 	s.Split(func(data []byte, atEOF bool) (int, []byte, error) {
 		entry, err := EntryFromBytes(data)
-		if err != nil {
+		if err == nil {
 			return len(entry.ToBinary()), data[:len(entry.ToBinary())], nil
 		}
 		return 0, nil, nil
