@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -13,6 +13,8 @@ import (
 	"github.com/nireo/kantadb/sstable"
 	"github.com/nireo/kantadb/utils"
 )
+
+var queueMutex = &sync.Mutex{}
 
 // DB represents the database as a whole.
 type DB struct {
@@ -33,7 +35,6 @@ type DB struct {
 }
 
 // NewDB returns a instance of a database given a storage directory for sstables.
-// TODO: add some better way of configuring some of the values.
 func New(storageDir string) *DB {
 	return &DB{
 		Alive:      false,
@@ -41,7 +42,7 @@ func New(storageDir string) *DB {
 		SSTables:   make([]*sstable.SSTable, 0),
 		ssdir:      storageDir,
 		queueMutex: sync.Mutex{},
-		maxMEMsize: 128,
+		maxMEMsize: 1024,
 		ssMutex:    sync.Mutex{},
 	}
 }
@@ -102,7 +103,7 @@ func (db *DB) Get(key string) (string, bool) {
 // If the number is exceeded, add the in-memory table to the start of the queue.
 func (db *DB) Put(key, val string) {
 	if db.MEM.Size() > db.maxMEMsize {
-		db.queueMutex.Lock()
+		queueMutex.Lock()
 
 		// add the new in-memory table to the beginning of the list, such that we
 		// can easily go through the latest elements when querying and also write older
@@ -110,7 +111,7 @@ func (db *DB) Put(key, val string) {
 		db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
 		utils.PrintDebug("reset the memory table, lenght of queue: %d", len(db.MEMQueue))
 
-		db.queueMutex.Unlock()
+		queueMutex.Unlock()
 
 		db.MEM = mem.New()
 	}
@@ -122,22 +123,27 @@ func (db *DB) Put(key, val string) {
 // HandleQueue takes care of emptying the queue and writing the queue into
 // sstables.
 func (db *DB) handleQueue() {
-	for db.Alive {
+	for {
 		// don't add new tables while dumping the queues to disk
-		db.queueMutex.Lock()
+		queueMutex.Lock()
 
 		// start from the end because the first element in the array contains the
 		// newest items. So we want to add priority to older tables.
-		for i := len(db.MEMQueue) - 1; i >= 0; i++ {
+
+		for i := len(db.MEMQueue) - 1; i >= 0; i-- {
 			timestamp := time.Now().UnixNano()
 
 			db.ssMutex.Lock()
-			sst := sstable.NewSSTable(strconv.FormatInt(timestamp, 10) + ".tb")
+
+			filePath := filepath.Join(db.ssdir, fmt.Sprintf("%v.sstable", timestamp))
+			sst := sstable.NewSSTable(filePath)
 
 			// create the new file
-			file, err := os.Create(db.ssdir + "/" + sst.Filename)
+			file, err := os.Create(sst.Filename)
 			if err != nil {
 				// error happended skip this and try again on the next iteration
+				utils.PrintDebug("error creating sstable: %s", err)
+				db.ssMutex.Unlock()
 				continue
 			}
 			defer file.Close()
@@ -156,8 +162,8 @@ func (db *DB) handleQueue() {
 		// clean up the queue since we went through each item
 		db.MEMQueue = []*mem.MEM{}
 
-		db.queueMutex.Unlock()
-		time.Sleep(time.Second)
+		queueMutex.Unlock()
+		time.Sleep(time.Millisecond * 100)
 	}
 }
 
@@ -168,7 +174,7 @@ func (db *DB) parseSSTableDirectory() error {
 		// create the ss table directory
 
 		utils.PrintDebug("sstable folder was not found, creating dir: %s", db.ssdir)
-		if err := os.Mkdir(db.ssdir, 0600); err != nil {
+		if err := os.Mkdir(db.ssdir, 0755); err != nil {
 			return err
 		}
 

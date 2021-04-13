@@ -70,7 +70,7 @@ func TestAllGets(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 
 	stored := []string{}
-	for i := 0; i < 800; i++ {
+	for i := 0; i < 10000; i++ {
 		randomNumber := rand.Int()
 		// store some random numbers and make sure we can find them
 		if randomNumber%5 == 0 {
@@ -90,7 +90,7 @@ func TestAllGets(t *testing.T) {
 	}
 
 	// remove the newly generated folder
-	if err := os.Remove("./testfolder"); err != nil {
+	if err := os.RemoveAll("./testfolder"); err != nil {
 		log.Printf("could not delete database folder")
 	}
 }

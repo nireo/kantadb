@@ -30,7 +30,7 @@ func (ss *SSTable) FillTree() {
 
 func (ss *SSTable) Get(key string) (string, bool) {
 	// open the file
-	file, err := os.OpenFile(ss.Filename, os.O_RDONLY, 0600)
+	file, err := os.OpenFile(ss.Filename, os.O_RDONLY, 0660)
 	if err != nil {
 		return "", false
 	}
