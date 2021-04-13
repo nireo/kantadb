@@ -33,14 +33,14 @@ type DB struct {
 
 // NewDB returns a instance of a database given a storage directory for sstables.
 // TODO: add some better way of configuring some of the values.
-func NewDB(storageDir string) *DB {
+func New(storageDir string) *DB {
 	return &DB{
 		Alive:      false,
 		MEM:        mem.New(),
 		SSTables:   make([]*sstable.SSTable, 0),
 		ssdir:      storageDir,
 		queueMutex: sync.Mutex{},
-		maxMEMsize: 1000,
+		maxMEMsize: 128,
 		ssMutex:    sync.Mutex{},
 	}
 }
@@ -177,6 +177,9 @@ func (db *DB) parseSSTableDirectory() error {
 		sst := sstable.NewSSTable(path)
 		sstlbs = append([]*sstable.SSTable{sst}, sstlbs...)
 	}
+
+	// no need to use mutex since this code isn't ran concurrently
+	db.SSTables = sstlbs
 
 	// all of the tables are parsed now we need to create some kind of
 	// sparsing index for all of the sstables, but that will come later.
