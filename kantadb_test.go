@@ -1,6 +1,7 @@
 package kantadb_test
 
 import (
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -92,5 +93,73 @@ func TestAllGets(t *testing.T) {
 	// remove the newly generated folder
 	if err := os.RemoveAll("./testfolder"); err != nil {
 		log.Printf("could not delete database folder")
+	}
+}
+
+func TestSSTableCreation(t *testing.T) {
+	db := kantadb.New("./testfolder")
+	db.Run(true)
+
+	rand.Seed(time.Now().UnixNano())
+
+	for i := 0; i < 4000; i++ {
+		randomNumber := rand.Int()
+		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
+	}
+
+	// wait for all of the sstables to go through to disk
+	time.Sleep(time.Millisecond * 200)
+
+	sstables, err := ioutil.ReadDir("./testfolder")
+	if err != nil {
+		t.Errorf("could not find files in the testfolder: %s", err)
+	}
+
+	// since the maximum size of the memory table is 1028 so there should be 3 sstables created.
+	if len(sstables) == 0 {
+		t.Errorf("there were no files in the directory")
+	}
+
+	if err := os.RemoveAll("./testfolder"); err != nil {
+		t.Errorf("could not delete database folder")
+	}
+}
+
+func TestPersistance(t *testing.T) {
+	db1 := kantadb.New("./testfolder")
+	db1.Run(true)
+
+	rand.Seed(time.Now().UnixNano())
+
+	stored := []string{}
+	for i := 0; i < 2000; i++ {
+		randomNumber := rand.Int()
+		// store some random numbers and make sure we can find them
+		if randomNumber%7 == 0 {
+			stored = append(stored, strconv.Itoa(randomNumber))
+		}
+
+		// write this value into the database
+		db1.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
+	}
+
+	if err := db1.Stop(); err != nil {
+		t.Errorf("could not stop running the database")
+	}
+
+	// wait for all of the data to be written
+	time.Sleep(time.Second)
+
+	db2 := kantadb.New("./testfolder")
+	db2.Run(true)
+
+	for _, key := range stored {
+		if _, ok := db2.Get(key); !ok {
+			t.Errorf("error getting key: %s", key)
+		}
+	}
+
+	if err := os.RemoveAll("./testfolder"); err != nil {
+		t.Errorf("could not delete database folder")
 	}
 }

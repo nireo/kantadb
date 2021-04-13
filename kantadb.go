@@ -15,6 +15,8 @@ import (
 )
 
 var queueMutex = &sync.Mutex{}
+var memMutex = &sync.Mutex{}
+var ssMutex = &sync.Mutex{}
 
 // DB represents the database as a whole.
 type DB struct {
@@ -41,9 +43,7 @@ func New(storageDir string) *DB {
 		MEM:        mem.New(),
 		SSTables:   make([]*sstable.SSTable, 0),
 		ssdir:      storageDir,
-		queueMutex: sync.Mutex{},
 		maxMEMsize: 1024,
-		ssMutex:    sync.Mutex{},
 	}
 }
 
@@ -71,7 +71,9 @@ func (db *DB) Run(debugStatus bool) error {
 // Get tries to find the wanted key from the in-memory table, and if not found checks
 // it then checks the queue for the queue.
 func (db *DB) Get(key string) (string, bool) {
+	memMutex.Lock()
 	val, ok := db.MEM.Get(key)
+	memMutex.Unlock()
 
 	if !ok {
 		// find from the write queue
@@ -102,7 +104,11 @@ func (db *DB) Get(key string) (string, bool) {
 // in the in-memory table exceeds the amount specified in the database configuation.
 // If the number is exceeded, add the in-memory table to the start of the queue.
 func (db *DB) Put(key, val string) {
-	if db.MEM.Size() > db.maxMEMsize {
+	memMutex.Lock()
+	size := db.MEM.Size()
+	memMutex.Unlock()
+
+	if size > db.maxMEMsize {
 		queueMutex.Lock()
 
 		// add the new in-memory table to the beginning of the list, such that we
@@ -113,11 +119,15 @@ func (db *DB) Put(key, val string) {
 
 		queueMutex.Unlock()
 
+		memMutex.Lock()
 		db.MEM = mem.New()
+		memMutex.Unlock()
 	}
 
 	// Write key into the plain in-memory table.
+	memMutex.Lock()
 	db.MEM.Put(key, val)
+	memMutex.Unlock()
 }
 
 // HandleQueue takes care of emptying the queue and writing the queue into
@@ -133,7 +143,7 @@ func (db *DB) handleQueue() {
 		for i := len(db.MEMQueue) - 1; i >= 0; i-- {
 			timestamp := time.Now().UnixNano()
 
-			db.ssMutex.Lock()
+			ssMutex.Lock()
 
 			filePath := filepath.Join(db.ssdir, fmt.Sprintf("%v.sstable", timestamp))
 			sst := sstable.NewSSTable(filePath)
@@ -143,7 +153,7 @@ func (db *DB) handleQueue() {
 			if err != nil {
 				// error happended skip this and try again on the next iteration
 				utils.PrintDebug("error creating sstable: %s", err)
-				db.ssMutex.Unlock()
+				ssMutex.Unlock()
 				continue
 			}
 			defer file.Close()
@@ -156,7 +166,7 @@ func (db *DB) handleQueue() {
 			utils.PrintDebug("created a new sstable at: %s", sst.Filename)
 			// now just append the newest sstable to the beginning of the queue
 			db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
-			db.ssMutex.Unlock()
+			ssMutex.Unlock()
 		}
 
 		// clean up the queue since we went through each item
@@ -183,7 +193,8 @@ func (db *DB) parseSSTableDirectory() error {
 
 	var pathStrings []string
 	for _, path := range paths {
-		pathStrings = append(pathStrings, path.Name())
+		filePath := filepath.Join(db.ssdir, path.Name())
+		pathStrings = append(pathStrings, filePath)
 	}
 
 	sort.Strings(pathStrings)
@@ -201,5 +212,32 @@ func (db *DB) parseSSTableDirectory() error {
 
 	// all of the tables are parsed now we need to create some kind of
 	// sparsing index for all of the sstables, but that will come later.
+	return nil
+}
+
+func (db *DB) Stop() error {
+	queueMutex.Lock()
+	db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
+	queueMutex.Unlock()
+
+	timestamp := time.Now().UnixNano()
+	filePath := filepath.Join(db.ssdir, fmt.Sprintf("%v.sstable", timestamp))
+	sst := sstable.NewSSTable(filePath)
+
+	// create the new file
+	file, err := os.Create(sst.Filename)
+	if err != nil {
+		// error happended skip this and try again on the next iteration
+		utils.PrintDebug("error creating sstable: %s", err)
+		return fmt.Errorf("could not write remaining memtable: %s", err)
+	}
+	defer file.Close()
+
+	entrs := db.MEMQueue[0].ConvertIntoEntries()
+	for _, e := range entrs {
+		file.Write(e.ToBinary())
+	}
+
+	db.Alive = false
 	return nil
 }
