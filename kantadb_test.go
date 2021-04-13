@@ -15,7 +15,7 @@ func TestFolderCreated(t *testing.T) {
 	db := kantadb.New("./testfolder")
 
 	// start running the database services
-	db.Run()
+	db.Run(true)
 
 	if _, err := os.Stat("./testfolder"); os.IsNotExist(err) {
 		t.Errorf("could not create new directory")
@@ -29,7 +29,7 @@ func TestFolderCreated(t *testing.T) {
 
 func TestBasicMemoryOperations(t *testing.T) {
 	db := kantadb.New("./testfolder")
-	db.Run()
+	db.Run(true)
 
 	// test placing values into the database
 	keys := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
@@ -64,7 +64,7 @@ func TestBasicMemoryOperations(t *testing.T) {
 
 func TestAllGets(t *testing.T) {
 	db := kantadb.New("./testfolder")
-	db.Run()
+	db.Run(true)
 
 	// since the max value is 128
 	rand.Seed(time.Now().UnixNano())

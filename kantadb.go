@@ -11,6 +11,7 @@ import (
 
 	"github.com/nireo/kantadb/mem"
 	"github.com/nireo/kantadb/sstable"
+	"github.com/nireo/kantadb/utils"
 )
 
 // DB represents the database as a whole.
@@ -46,9 +47,14 @@ func New(storageDir string) *DB {
 }
 
 // Run starts the db service and starts checking for queue and other things
-func (db *DB) Run() error {
+func (db *DB) Run(debugStatus bool) error {
+	utils.SetDebuggingMode(debugStatus)
+
+	utils.PrintDebug("starting the database service...")
+
 	db.Alive = true
 
+	utils.PrintDebug("starting to parse sstables...")
 	// parse the starting directory for table files containing sstables
 	if err := db.parseSSTableDirectory(); err != nil {
 		return fmt.Errorf("could not parse sstables or create directory for them: %s", err)
@@ -102,6 +108,8 @@ func (db *DB) Put(key, val string) {
 		// can easily go through the latest elements when querying and also write older
 		// tables to disk
 		db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
+		utils.PrintDebug("reset the memory table, lenght of queue: %d", len(db.MEMQueue))
+
 		db.queueMutex.Unlock()
 
 		db.MEM = mem.New()
@@ -139,6 +147,7 @@ func (db *DB) handleQueue() {
 				file.Write(e.ToBinary())
 			}
 
+			utils.PrintDebug("created a new sstable at: %s", sst.Filename)
 			// now just append the newest sstable to the beginning of the queue
 			db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
 			db.ssMutex.Unlock()
@@ -158,6 +167,7 @@ func (db *DB) parseSSTableDirectory() error {
 	if err != nil {
 		// create the ss table directory
 
+		utils.PrintDebug("sstable folder was not found, creating dir: %s", db.ssdir)
 		if err := os.Mkdir(db.ssdir, 0600); err != nil {
 			return err
 		}
@@ -177,6 +187,8 @@ func (db *DB) parseSSTableDirectory() error {
 		sst := sstable.NewSSTable(path)
 		sstlbs = append([]*sstable.SSTable{sst}, sstlbs...)
 	}
+
+	utils.PrintDebug("found %d sstables", len(sstlbs))
 
 	// no need to use mutex since this code isn't ran concurrently
 	db.SSTables = sstlbs
