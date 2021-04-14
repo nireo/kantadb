@@ -13,24 +13,23 @@ import (
 )
 
 func TestFolderCreated(t *testing.T) {
-	db := kantadb.New("./testfolder")
-
+	db := kantadb.New(kantadb.DefaultConfiguration())
 	// start running the database services
-	db.Run(true)
+	db.Run()
 
-	if _, err := os.Stat("./testfolder"); os.IsNotExist(err) {
+	if _, err := os.Stat(db.GetDirectory()); os.IsNotExist(err) {
 		t.Errorf("could not create new directory")
 	}
 
 	// remove the newly generated folder
-	if err := os.Remove("./testfolder"); err != nil {
+	if err := os.Remove(db.GetDirectory()); err != nil {
 		log.Printf("could not delete database folder")
 	}
 }
 
 func TestBasicMemoryOperations(t *testing.T) {
-	db := kantadb.New("./testfolder")
-	db.Run(true)
+	db := kantadb.New(kantadb.DefaultConfiguration())
+	db.Run()
 
 	// test placing values into the database
 	keys := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
@@ -58,14 +57,14 @@ func TestBasicMemoryOperations(t *testing.T) {
 	}
 
 	// remove the newly generated folder
-	if err := os.Remove("./testfolder"); err != nil {
+	if err := os.Remove(db.GetDirectory()); err != nil {
 		log.Printf("could not delete database folder")
 	}
 }
 
 func TestAllGets(t *testing.T) {
-	db := kantadb.New("./testfolder")
-	db.Run(true)
+	db := kantadb.New(kantadb.DefaultConfiguration())
+	db.Run()
 
 	// since the max value is 128
 	rand.Seed(time.Now().UnixNano())
@@ -91,14 +90,14 @@ func TestAllGets(t *testing.T) {
 	}
 
 	// remove the newly generated folder
-	if err := os.RemoveAll("./testfolder"); err != nil {
+	if err := os.RemoveAll(db.GetDirectory()); err != nil {
 		log.Printf("could not delete database folder")
 	}
 }
 
 func TestSSTableCreation(t *testing.T) {
-	db := kantadb.New("./testfolder")
-	db.Run(true)
+	db := kantadb.New(kantadb.DefaultConfiguration())
+	db.Run()
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -110,7 +109,7 @@ func TestSSTableCreation(t *testing.T) {
 	// wait for all of the sstables to go through to disk
 	time.Sleep(time.Millisecond * 200)
 
-	sstables, err := ioutil.ReadDir("./testfolder")
+	sstables, err := ioutil.ReadDir(db.GetDirectory())
 	if err != nil {
 		t.Errorf("could not find files in the testfolder: %s", err)
 	}
@@ -120,14 +119,14 @@ func TestSSTableCreation(t *testing.T) {
 		t.Errorf("there were no files in the directory")
 	}
 
-	if err := os.RemoveAll("./testfolder"); err != nil {
+	if err := os.RemoveAll(db.GetDirectory()); err != nil {
 		t.Errorf("could not delete database folder")
 	}
 }
 
 func TestPersistance(t *testing.T) {
-	db1 := kantadb.New("./testfolder")
-	db1.Run(true)
+	db1 := kantadb.New(kantadb.DefaultConfiguration())
+	db1.Run()
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -150,8 +149,8 @@ func TestPersistance(t *testing.T) {
 	// wait for all of the data to be written
 	time.Sleep(time.Second)
 
-	db2 := kantadb.New("./testfolder")
-	db2.Run(true)
+	db2 := kantadb.New(kantadb.DefaultConfiguration())
+	db2.Run()
 
 	for _, key := range stored {
 		if _, ok := db2.Get(key); !ok {
@@ -159,14 +158,14 @@ func TestPersistance(t *testing.T) {
 		}
 	}
 
-	if err := os.RemoveAll("./testfolder"); err != nil {
+	if err := os.RemoveAll(db2.GetDirectory()); err != nil {
 		t.Errorf("could not delete database folder")
 	}
 }
 
 func TestDelete(t *testing.T) {
-	db := kantadb.New("./testfolder")
-	db.Run(true)
+	db := kantadb.New(kantadb.DefaultConfiguration())
+	db.Run()
 
 	// create keys
 	stored := []string{}
@@ -190,7 +189,7 @@ func TestDelete(t *testing.T) {
 		}
 	}
 
-	if err := os.RemoveAll("./testfolder"); err != nil {
+	if err := os.RemoveAll(db.GetDirectory()); err != nil {
 		t.Errorf("error removing database folder: %s", err)
 	}
 }

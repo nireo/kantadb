@@ -21,37 +21,56 @@ var ssMutex = &sync.Mutex{}
 
 // DB represents the database as a whole.
 type DB struct {
-	Alive bool
-	MEM   *mem.MEM
-
-	// sstables
-	ssMutex  sync.Mutex
-	SSTables []*sstable.SSTable
-
-	// configuration
+	Alive      bool
+	MEM        *mem.MEM
+	SSTables   []*sstable.SSTable
 	maxMEMsize int
 	ssdir      string
-
-	// queue
 	MEMQueue   []*mem.MEM
-	queueMutex sync.Mutex
+}
+
+// Config represents different parameters to change te default behaviour of the database
+type Config struct {
+	StorageDir string
+	MaxMemSize int
+	Debug      bool
+}
+
+// DefaultConfiguration returns a database config that has some default values
+func DefaultConfiguration() *Config {
+	return &Config{
+		Debug:      true,
+		MaxMemSize: 1024,
+		StorageDir: "./kantadb",
+	}
 }
 
 // NewDB returns a instance of a database given a storage directory for sstables.
-func New(storageDir string) *DB {
+func New(config *Config) *DB {
+	conf := &Config{}
+	if config == nil {
+		conf = DefaultConfiguration()
+	} else {
+		conf = config
+	}
+
+	utils.SetDebuggingMode(config.Debug)
+
 	return &DB{
 		Alive:      false,
 		MEM:        mem.New(),
 		SSTables:   make([]*sstable.SSTable, 0),
-		ssdir:      storageDir,
-		maxMEMsize: 1024,
+		ssdir:      conf.StorageDir,
+		maxMEMsize: conf.MaxMemSize,
 	}
 }
 
-// Run starts the db service and starts checking for queue and other things
-func (db *DB) Run(debugStatus bool) error {
-	utils.SetDebuggingMode(debugStatus)
+func (db *DB) GetDirectory() string {
+	return db.ssdir
+}
 
+// Run starts the db service and starts checking for queue and other things
+func (db *DB) Run() error {
 	utils.PrintDebug("starting the database service...")
 
 	db.Alive = true
