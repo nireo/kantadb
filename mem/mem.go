@@ -1,18 +1,30 @@
 package mem
 
 import (
+	"math/rand"
+	"os"
+	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/nireo/kantadb/entries"
+	"github.com/nireo/kantadb/utils"
 )
 
 // I think this is the most simple way to represent in-memory values instead of a tree,
 // since this is probably more performant and over all more idiomatic. We can also add
 // new methods if needed.
 
+var logPath string
+
 // MEM represents the in-memory data
 type MEM struct {
-	kvs map[string]string
+	kvs         map[string]string
+	logFilePath string
+}
+
+func SetLogPath(path string) {
+	logPath = path
 }
 
 // Put adds a value to the data
@@ -36,10 +48,54 @@ func (m *MEM) Size() int {
 }
 
 // New creates a new instance of a memory table
-func New() *MEM {
+func New(logFilePath string) *MEM {
+	// create a random identifier
+	rand.Seed(time.Now().UnixNano())
+
+	_, err := os.Create(filepath.Join(
+		logPath, logFilePath,
+	))
+	if err != nil {
+		utils.PrintDebug("could not create log file: %s", err)
+	}
+
 	return &MEM{
+		kvs:         make(map[string]string),
+		logFilePath: logFilePath,
+	}
+}
+
+// CreateTableFromLog constructs a memory table from the contents of a log file.
+// This is used to check if some memtables were left in-memory when closing.
+func CreateTableFromLog(logFilePath string) (*MEM, error) {
+	file, err := os.Open(logFilePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	table := &MEM{
 		kvs: make(map[string]string),
 	}
+
+	entryScanner := entries.InitScanner(file, 4096)
+	for {
+		entry, err := entryScanner.ReadNext()
+		if err != nil {
+			// we couldn't parse a entry file so the file has ended
+			break
+		}
+
+		table.kvs[entry.Key] = entry.Value
+	}
+
+	// now that the log file is useless we can just delete it, since the table is going into
+	// the memory table queue.
+	if err := os.Remove(logFilePath); err != nil {
+		return nil, err
+	}
+
+	return table, nil
 }
 
 // ConvertIntoEntires converts the database key-value pairs into entries which are

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,7 +60,7 @@ func New(config *Config) *DB {
 
 	return &DB{
 		Alive:      false,
-		MEM:        mem.New(),
+		MEM:        mem.New(strconv.FormatInt(time.Now().UnixNano(), 10) + ".log"),
 		SSTables:   make([]*sstable.SSTable, 0),
 		ssdir:      conf.StorageDir,
 		maxMEMsize: conf.MaxMemSize,
@@ -80,6 +82,11 @@ func (db *DB) Run() error {
 	if err := db.parseSSTableDirectory(); err != nil {
 		return fmt.Errorf("could not parse sstables or create directory for them: %s", err)
 	}
+
+	mem.SetLogPath(db.ssdir)
+
+	// parse for ss directory for log files
+	db.parseLogFiles()
 
 	// start checking for in-memory tables in the queue and start converting in-memory
 	// tables into sstables.
@@ -149,7 +156,7 @@ func (db *DB) Put(key, val string) {
 		queueMutex.Unlock()
 
 		memMutex.Lock()
-		db.MEM = mem.New()
+		db.MEM = mem.New(strconv.FormatInt(time.Now().UnixNano(), 10) + ".log")
 		memMutex.Unlock()
 	}
 
@@ -180,7 +187,7 @@ func (db *DB) Delete(key string) {
 		queueMutex.Unlock()
 
 		memMutex.Lock()
-		db.MEM = mem.New()
+		db.MEM = mem.New(strconv.FormatInt(time.Now().UnixNano(), 10) + ".log")
 		memMutex.Unlock()
 	}
 
@@ -205,7 +212,7 @@ func (db *DB) handleQueue() {
 
 			ssMutex.Lock()
 
-			filePath := filepath.Join(db.ssdir, fmt.Sprintf("%v.sstable", timestamp))
+			filePath := filepath.Join(db.ssdir, fmt.Sprintf("%v.ss", timestamp))
 			sst := sstable.NewSSTable(filePath)
 
 			// create the new file
@@ -237,6 +244,51 @@ func (db *DB) handleQueue() {
 	}
 }
 
+// parseLogFiles goes through the log directory and creates memory tables for each log.
+// We parse the log files since, if the database unexpectedly shuts down we can recover
+// the data.
+func (db *DB) parseLogFiles() error {
+	paths, err := ioutil.ReadDir(db.ssdir)
+	if err != nil {
+		// create the ss table directory
+		utils.PrintDebug("log folder was not found, creating dir: %s", db.ssdir)
+		if err := os.Mkdir(db.ssdir, 0755); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	var pathStrings []string
+	for _, path := range paths {
+		// skip non log files
+		if !strings.HasSuffix(path.Name(), ".log") {
+			continue
+		}
+
+		filePath := filepath.Join(db.ssdir, path.Name())
+		pathStrings = append(pathStrings, filePath)
+	}
+
+	// we want create memtables and append them to the queue
+	for _, path := range pathStrings {
+		table, err := mem.CreateTableFromLog(path)
+		if err != nil {
+			return err
+		}
+
+		queueMutex.Lock()
+		db.MEMQueue = append([]*mem.MEM{table}, db.MEMQueue...)
+		utils.PrintDebug("read memtable from queue, lenght of queue: %d", len(db.MEMQueue))
+		queueMutex.Unlock()
+	}
+
+	// this will be ran before starting the queue flusher such that queue can instantly
+	// clear queue and convert these tables into sstables.
+
+	return nil
+}
+
 // parseSSTableDirectory finds all of the sstable files and adds them to the list.
 func (db *DB) parseSSTableDirectory() error {
 	paths, err := ioutil.ReadDir(db.ssdir)
@@ -253,6 +305,11 @@ func (db *DB) parseSSTableDirectory() error {
 
 	var pathStrings []string
 	for _, path := range paths {
+		// skip files that are not sstables
+		if !strings.HasSuffix(path.Name(), ".ss") {
+			continue
+		}
+
 		filePath := filepath.Join(db.ssdir, path.Name())
 		pathStrings = append(pathStrings, filePath)
 	}

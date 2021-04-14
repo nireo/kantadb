@@ -15,17 +15,8 @@ type SSTable struct {
 
 func NewSSTable(name string) *SSTable {
 	return &SSTable{
-		Tree:     redblacktree.NewWithStringComparator(),
 		Filename: name,
 	}
-}
-
-func (ss *SSTable) FillTree() {
-	f, err := os.OpenFile(ss.Filename, os.O_RDONLY, 0600)
-	if err != nil {
-		return
-	}
-	defer f.Close()
 }
 
 func (ss *SSTable) Get(key string) (string, bool) {
