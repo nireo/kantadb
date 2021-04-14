@@ -56,6 +56,8 @@ func New(config *Config) *DB {
 		conf = config
 	}
 
+	mem.SetLogPath(conf.StorageDir)
+
 	utils.SetDebuggingMode(config.Debug)
 
 	return &DB{
@@ -82,8 +84,6 @@ func (db *DB) Run() error {
 	if err := db.parseSSTableDirectory(); err != nil {
 		return fmt.Errorf("could not parse sstables or create directory for them: %s", err)
 	}
-
-	mem.SetLogPath(db.ssdir)
 
 	// parse for ss directory for log files
 	db.parseLogFiles()
@@ -231,8 +231,14 @@ func (db *DB) handleQueue() {
 			}
 
 			utils.PrintDebug("created a new sstable at: %s", sst.Filename)
+
 			// now just append the newest sstable to the beginning of the queue
 			db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
+
+			if err := db.MEMQueue[i].DeleteLogFile(); err != nil {
+				utils.PrintDebug("could not delete log file: %s", err)
+			}
+
 			ssMutex.Unlock()
 		}
 
@@ -279,7 +285,7 @@ func (db *DB) parseLogFiles() error {
 
 		queueMutex.Lock()
 		db.MEMQueue = append([]*mem.MEM{table}, db.MEMQueue...)
-		utils.PrintDebug("read memtable from queue, lenght of queue: %d", len(db.MEMQueue))
+		utils.PrintDebug("read memtable from log file of size: %d", table.Size())
 		queueMutex.Unlock()
 	}
 

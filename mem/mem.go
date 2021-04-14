@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/nireo/kantadb/entries"
@@ -16,6 +17,8 @@ import (
 // new methods if needed.
 
 var logPath string
+
+var logFileWriteMutex = &sync.Mutex{}
 
 // MEM represents the in-memory data
 type MEM struct {
@@ -29,6 +32,7 @@ func SetLogPath(path string) {
 
 // Put adds a value to the data
 func (m *MEM) Put(key, val string) {
+	m.WriteToLog(key, val)
 	m.kvs[key] = val
 }
 
@@ -75,7 +79,8 @@ func CreateTableFromLog(logFilePath string) (*MEM, error) {
 	defer file.Close()
 
 	table := &MEM{
-		kvs: make(map[string]string),
+		kvs:         make(map[string]string),
+		logFilePath: logFilePath,
 	}
 
 	entryScanner := entries.InitScanner(file, 4096)
@@ -88,6 +93,8 @@ func CreateTableFromLog(logFilePath string) (*MEM, error) {
 
 		table.kvs[entry.Key] = entry.Value
 	}
+
+	utils.PrintDebug("created a table from log file of size: %d", table.Size())
 
 	// now that the log file is useless we can just delete it, since the table is going into
 	// the memory table queue.
@@ -116,4 +123,24 @@ func (m *MEM) ConvertIntoEntries() []*entries.Entry {
 	})
 
 	return entrs
+}
+
+// WriteToLog appends a key-value pair into the log
+func (m *MEM) WriteToLog(key, val string) {
+	logFileWriteMutex.Lock()
+
+	entry := entries.Entry{
+		Key:   key,
+		Value: val,
+		Type:  entries.KVPair,
+	}
+
+	entry.AppendToFile(filepath.Join(logPath, m.logFilePath))
+
+	logFileWriteMutex.Unlock()
+}
+
+// DeleteLogFile deletes the log file after all of the values have been stored into an sstable
+func (m *MEM) DeleteLogFile() error {
+	return os.Remove(filepath.Join(logPath, m.logFilePath))
 }

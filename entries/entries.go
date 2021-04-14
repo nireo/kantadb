@@ -98,6 +98,7 @@ func (e *Entry) AppendToFile(filename string) error {
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
 	if _, err := file.Write(e.ToBinary()); err != nil {
 		return err

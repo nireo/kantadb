@@ -8,7 +8,7 @@ import (
 )
 
 func TestSimpleOperations(t *testing.T) {
-	m := mem.New()
+	m := mem.New("testfile.log")
 
 	m.Put("hello", "world")
 	val, ok := m.Get("hello")
@@ -26,7 +26,7 @@ func TestSimpleOperations(t *testing.T) {
 }
 
 func TestConvertToEntries(t *testing.T) {
-	m := mem.New()
+	m := mem.New("testfile.log")
 
 	expectedKeyOrder := []string{"1", "2", "3"}
 
