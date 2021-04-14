@@ -163,3 +163,34 @@ func TestPersistance(t *testing.T) {
 		t.Errorf("could not delete database folder")
 	}
 }
+
+func TestDelete(t *testing.T) {
+	db := kantadb.New("./testfolder")
+	db.Run(true)
+
+	// create keys
+	stored := []string{}
+	for i := 0; i < 2000; i++ {
+		randomNumber := rand.Int()
+		if randomNumber%7 == 0 {
+			stored = append(stored, strconv.Itoa(randomNumber))
+		}
+		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
+	}
+
+	// delete them
+	for _, key := range stored {
+		db.Delete(key)
+	}
+
+	// check that they cannot be found
+	for _, key := range stored {
+		if _, ok := db.Get(key); ok {
+			t.Errorf("got key even though deleted: %s", key)
+		}
+	}
+
+	if err := os.RemoveAll("./testfolder"); err != nil {
+		t.Errorf("error removing database folder: %s", err)
+	}
+}

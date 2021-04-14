@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nireo/kantadb/entries"
 	"github.com/nireo/kantadb/mem"
 	"github.com/nireo/kantadb/sstable"
 	"github.com/nireo/kantadb/utils"
@@ -69,7 +70,9 @@ func (db *DB) Run(debugStatus bool) error {
 }
 
 // Get tries to find the wanted key from the in-memory table, and if not found checks
-// it then checks the queue for the queue.
+// it then checks the queue for the value. If the value is not found in the queue, check
+// the sstables. If the value corresponds to a TombstoneValue return a invalid key since
+// the key was "deleted".
 func (db *DB) Get(key string) (string, bool) {
 	memMutex.Lock()
 	val, ok := db.MEM.Get(key)
@@ -80,7 +83,7 @@ func (db *DB) Get(key string) (string, bool) {
 		for _, mem := range db.MEMQueue {
 			val, ok = mem.Get(key)
 			if ok {
-				return val, ok
+				break
 			}
 		}
 	}
@@ -88,12 +91,19 @@ func (db *DB) Get(key string) (string, bool) {
 	// if that value still hasn't been found search in the sstables.
 	if !ok {
 		// note that we start searching from the newest sstable
+
+		// TODO: create workers for going through values
 		for _, st := range db.SSTables {
 			val, ok = st.Get(key)
 			if ok {
-				return val, ok
+				break
 			}
 		}
+	}
+
+	// The value shuold be deleted so the value cannot be found
+	if val == entries.TombstoneValue {
+		return "", false
 	}
 
 	// If a value is not found, the value is equal to "" and the ok will be false
@@ -127,6 +137,37 @@ func (db *DB) Put(key, val string) {
 	// Write key into the plain in-memory table.
 	memMutex.Lock()
 	db.MEM.Put(key, val)
+	memMutex.Unlock()
+}
+
+// Delete has almost exactly the same functionality as read, but instead we set the value of the
+// key to a TombstoneValue which just corresponds to a string where the first character is a null-byte.
+// We cannot remove the key from the in-memory table since it might reside in the queue or sstable.
+// The key will be ultimately deleted when sstable compaction happens.
+func (db *DB) Delete(key string) {
+	memMutex.Lock()
+	size := db.MEM.Size()
+	memMutex.Unlock()
+
+	if size > db.maxMEMsize {
+		queueMutex.Lock()
+
+		// add the new in-memory table to the beginning of the list, such that we
+		// can easily go through the latest elements when querying and also write older
+		// tables to disk
+		db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
+		utils.PrintDebug("reset the memory table, lenght of queue: %d", len(db.MEMQueue))
+
+		queueMutex.Unlock()
+
+		memMutex.Lock()
+		db.MEM = mem.New()
+		memMutex.Unlock()
+	}
+
+	// Write key into the plain in-memory table.
+	memMutex.Lock()
+	db.MEM.Put(key, entries.TombstoneValue)
 	memMutex.Unlock()
 }
 

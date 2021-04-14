@@ -12,6 +12,8 @@ type EntryType byte
 const (
 	KVPair EntryType = iota
 	Tombstone
+
+	TombstoneValue string = "\x00"
 )
 
 // Entry represents a database entry that is written into disk
@@ -33,7 +35,7 @@ type EntryScanner struct {
 // with a null-byte the entry is considered a tombstone entry.
 func EntryFromBytes(bytes []byte) (*Entry, error) {
 	// the bytes dont have the encoded values
-	// the first byte is empty which is why we need
+	// the first byte is empty which is why we need 9 bytes overall for the beginning
 	if len(bytes) < 9 {
 		return nil, fmt.Errorf("data is too short. got=%d", len(bytes))
 	}
@@ -47,7 +49,7 @@ func EntryFromBytes(bytes []byte) (*Entry, error) {
 
 	// check if tombstone value
 	val := string(bytes[9+klen : 9+klen+vlen])
-	tombstone := val[0] == '\x00'
+	tombstone := val == TombstoneValue
 
 	entry := &Entry{
 		Value: val,
