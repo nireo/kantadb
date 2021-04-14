@@ -3,16 +3,22 @@ package entries
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 )
 
+// EntryType specifies which type of value the entry is, for example: a tombstone
+// or a key-value pair.
 type EntryType byte
 
 const (
+	// KVPair represents a key-value pair
 	KVPair EntryType = iota
+	// Tombstone represents a deleted value.
 	Tombstone
 
+	// TombstoneValue is the value given to deleted key-value pairs.
 	TombstoneValue string = "\x00"
 )
 
@@ -30,9 +36,9 @@ type EntryScanner struct {
 }
 
 // EntryFromBytes takes in a some byte data and tries to encode a database entry from that data.
-// The byte encoding is inspired by bitcask in the sense that the encoding includes the key length
-// followed by the key and then the value length followed by the value. Also if the value starts off
-// with a null-byte the entry is considered a tombstone entry.
+// The byte encoding is as followed: each entry is seperated by a 0-byte; then the following 8
+// bytes contain the lengths of the key and value. Then the following entries are of the specified
+// length.
 func EntryFromBytes(bytes []byte) (*Entry, error) {
 	// the bytes dont have the encoded values
 	// the first byte is empty which is why we need 9 bytes overall for the beginning
@@ -44,7 +50,7 @@ func EntryFromBytes(bytes []byte) (*Entry, error) {
 	vlen := binary.BigEndian.Uint32(bytes[5:9])
 
 	if uint32(9+klen+vlen) > uint32(len(bytes)) {
-		return nil, fmt.Errorf("the key and value lengths are invalid.")
+		return nil, errors.New("the key and value lengths are invalid")
 	}
 
 	// check if tombstone value

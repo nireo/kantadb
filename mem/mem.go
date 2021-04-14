@@ -26,6 +26,8 @@ type MEM struct {
 	logFilePath string
 }
 
+// SetLogPath sets the folder in which all of the log are to be stored.
+// The log directory is the same as the sstable directory.
 func SetLogPath(path string) {
 	logPath = path
 }
@@ -105,7 +107,7 @@ func CreateTableFromLog(logFilePath string) (*MEM, error) {
 	return table, nil
 }
 
-// ConvertIntoEntires converts the database key-value pairs into entries which are
+// ConvertIntoEntries converts the database key-value pairs into entries which are
 // then used to write values to the disk
 func (m *MEM) ConvertIntoEntries() []*entries.Entry {
 	var entrs []*entries.Entry

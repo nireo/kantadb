@@ -47,7 +47,7 @@ func DefaultConfiguration() *Config {
 	}
 }
 
-// NewDB returns a instance of a database given a storage directory for sstables.
+// New returns a instance of a database given a storage directory for sstables.
 func New(config *Config) *DB {
 	conf := &Config{}
 	if config == nil {
@@ -69,6 +69,7 @@ func New(config *Config) *DB {
 	}
 }
 
+// GetDirectory returns the directory in which all of the files are stored.
 func (db *DB) GetDirectory() string {
 	return db.ssdir
 }
@@ -151,7 +152,7 @@ func (db *DB) Put(key, val string) {
 		// can easily go through the latest elements when querying and also write older
 		// tables to disk
 		db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
-		utils.PrintDebug("reset the memory table, lenght of queue: %d", len(db.MEMQueue))
+		utils.PrintDebug("reset the memory table, length of queue: %d", len(db.MEMQueue))
 
 		queueMutex.Unlock()
 
@@ -182,7 +183,7 @@ func (db *DB) Delete(key string) {
 		// can easily go through the latest elements when querying and also write older
 		// tables to disk
 		db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
-		utils.PrintDebug("reset the memory table, lenght of queue: %d", len(db.MEMQueue))
+		utils.PrintDebug("reset the memory table, length of queue: %d", len(db.MEMQueue))
 
 		queueMutex.Unlock()
 
@@ -218,7 +219,7 @@ func (db *DB) handleQueue() {
 			// create the new file
 			file, err := os.Create(sst.Filename)
 			if err != nil {
-				// error happended skip this and try again on the next iteration
+				// error happened skip this and try again on the next iteration
 				utils.PrintDebug("error creating sstable: %s", err)
 				ssMutex.Unlock()
 				continue
@@ -338,6 +339,7 @@ func (db *DB) parseSSTableDirectory() error {
 	return nil
 }
 
+// Stop clears the data gracefully from the memtables are sstable write queue
 func (db *DB) Stop() error {
 	queueMutex.Lock()
 	db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
@@ -350,7 +352,7 @@ func (db *DB) Stop() error {
 	// create the new file
 	file, err := os.Create(sst.Filename)
 	if err != nil {
-		// error happended skip this and try again on the next iteration
+		// error happened skip this and try again on the next iteration
 		utils.PrintDebug("error creating sstable: %s", err)
 		return fmt.Errorf("could not write remaining memtable: %s", err)
 	}
