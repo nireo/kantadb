@@ -1,7 +1,7 @@
 package mem
 
 import (
-	"math/rand"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -54,20 +54,22 @@ func (m *MEM) Size() int {
 }
 
 // New creates a new instance of a memory table
-func New(logFilePath string) *MEM {
-	// create a random identifier
-	rand.Seed(time.Now().UnixNano())
+func New() *MEM {
+	timestamp := time.Now().UnixNano()
+	filePath := filepath.Join(logPath, fmt.Sprintf("%v.lg", timestamp))
 
-	_, err := os.Create(filepath.Join(
-		logPath, logFilePath,
-	))
+	// create the new file
+	file, err := os.Create(filePath)
 	if err != nil {
-		utils.PrintDebug("could not create log file: %s", err)
+		// error happened skip this and try again on the next iteration
+		utils.PrintDebug("error creating logfile: %s", err)
 	}
+	defer file.Close()
 
+	utils.PrintDebug("created a log file at: %s", filePath)
 	return &MEM{
 		kvs:         make(map[string]string),
-		logFilePath: logFilePath,
+		logFilePath: filePath,
 	}
 }
 
@@ -137,12 +139,12 @@ func (m *MEM) WriteToLog(key, val string) {
 		Type:  entries.KVPair,
 	}
 
-	entry.AppendToFile(filepath.Join(logPath, m.logFilePath))
+	entry.AppendToFile(m.logFilePath)
 
 	logFileWriteMutex.Unlock()
 }
 
 // DeleteLogFile deletes the log file after all of the values have been stored into an sstable
 func (m *MEM) DeleteLogFile() error {
-	return os.Remove(filepath.Join(logPath, m.logFilePath))
+	return os.Remove(m.logFilePath)
 }

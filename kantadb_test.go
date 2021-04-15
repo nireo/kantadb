@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,8 +159,9 @@ func TestPersistance(t *testing.T) {
 		}
 	}
 
-	if err := os.RemoveAll(db2.GetDirectory()); err != nil {
-		t.Errorf("could not delete database folder")
+	time.Sleep(time.Millisecond * 100)
+	if err := os.RemoveAll(db1.GetDirectory()); err != nil {
+		t.Errorf("could not delete database folder: %s", err)
 	}
 }
 
@@ -187,6 +189,36 @@ func TestDelete(t *testing.T) {
 		if _, ok := db.Get(key); ok {
 			t.Errorf("got key even though deleted: %s", key)
 		}
+	}
+
+	if err := os.RemoveAll(db.GetDirectory()); err != nil {
+		t.Errorf("error removing database folder: %s", err)
+	}
+}
+
+func TestLogFileCreation(t *testing.T) {
+	db := kantadb.New(kantadb.DefaultConfiguration())
+	db.Run()
+
+	db.Put("test1", "value2")
+	db.Put("test2", "value2")
+	db.Put("test3", "value2")
+	db.Put("test4", "value2")
+	db.Put("test5", "value2")
+	db.Put("test6", "value2")
+	db.Put("test7", "value2")
+
+	files, err := ioutil.ReadDir(db.GetDirectory())
+	if err != nil {
+		t.Errorf("could not find files in the testfolder: %s", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("there was a wrong number of log files. got=%d", len(files))
+	}
+
+	if !strings.HasSuffix(files[0].Name(), ".lg") {
+		t.Errorf("the file is not a log file got filename: %s", files[0].Name())
 	}
 
 	if err := os.RemoveAll(db.GetDirectory()); err != nil {

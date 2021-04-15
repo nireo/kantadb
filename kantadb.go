@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -62,7 +61,6 @@ func New(config *Config) *DB {
 
 	return &DB{
 		Alive:      false,
-		MEM:        mem.New(strconv.FormatInt(time.Now().UnixNano(), 10) + ".log"),
 		SSTables:   make([]*sstable.SSTable, 0),
 		ssdir:      conf.StorageDir,
 		maxMEMsize: conf.MaxMemSize,
@@ -87,7 +85,12 @@ func (db *DB) Run() error {
 	}
 
 	// parse for ss directory for log files
-	db.parseLogFiles()
+	if err := db.parseLogFiles(); err != nil {
+		return fmt.Errorf("could not parse log directory or create directory for them: %s", err)
+	}
+
+	// we can create a new instance of a memory table since the file directory has been created for sure
+	db.MEM = mem.New()
 
 	// start checking for in-memory tables in the queue and start converting in-memory
 	// tables into sstables.
@@ -157,7 +160,7 @@ func (db *DB) Put(key, val string) {
 		queueMutex.Unlock()
 
 		memMutex.Lock()
-		db.MEM = mem.New(strconv.FormatInt(time.Now().UnixNano(), 10) + ".log")
+		db.MEM = mem.New()
 		memMutex.Unlock()
 	}
 
@@ -188,7 +191,7 @@ func (db *DB) Delete(key string) {
 		queueMutex.Unlock()
 
 		memMutex.Lock()
-		db.MEM = mem.New(strconv.FormatInt(time.Now().UnixNano(), 10) + ".log")
+		db.MEM = mem.New()
 		memMutex.Unlock()
 	}
 
@@ -236,10 +239,6 @@ func (db *DB) handleQueue() {
 			// now just append the newest sstable to the beginning of the queue
 			db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
 
-			if err := db.MEMQueue[i].DeleteLogFile(); err != nil {
-				utils.PrintDebug("could not delete log file: %s", err)
-			}
-
 			ssMutex.Unlock()
 		}
 
@@ -269,7 +268,7 @@ func (db *DB) parseLogFiles() error {
 	var pathStrings []string
 	for _, path := range paths {
 		// skip non log files
-		if !strings.HasSuffix(path.Name(), ".log") {
+		if !strings.HasSuffix(path.Name(), ".lg") {
 			continue
 		}
 
