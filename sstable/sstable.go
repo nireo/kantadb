@@ -46,3 +46,39 @@ func (ss *SSTable) Get(key string) (string, bool) {
 
 	return "", false
 }
+
+// fillTree creates a sparse index to speed up look up time.
+// REFER: https://en.wikipedia.org/wiki/Database_index
+// TODO: create a function that utilizes the sparse index
+func (ss *SSTable) fillTree() {
+	ss.Tree = redblacktree.NewWithStringComparator()
+
+	file, err := os.OpenFile(ss.Filename, os.O_RDONLY, 0660)
+	if err != nil {
+		// do nothing
+		return
+	}
+	defer file.Close()
+
+	var (
+		curOffset  int
+		prevOffset int
+	)
+
+	// create a entry reader to read all values from the files
+	entryScanner := entries.InitScanner(file, 4096)
+
+	for {
+		entry, err := entryScanner.ReadNext()
+		if err != nil {
+			break
+		}
+
+		if ss.Tree.Empty() || curOffset-prevOffset > 4096 {
+			ss.Tree.Put(entry.Key, curOffset)
+			prevOffset = curOffset
+		}
+
+		curOffset += len(entry.ToBinary())
+	}
+}

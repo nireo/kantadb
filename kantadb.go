@@ -2,11 +2,9 @@ package kantadb
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -131,13 +129,16 @@ func (db *DB) Get(key string) (string, bool) {
 		// note that we start searching from the newest sstable
 
 		// TODO: create workers for going through values
-		for _, st := range db.SSTables {
-			val, ok = st.Get(key)
-			if ok {
-				break
+		/*
+			for _, st := range db.SSTables {
+				val, ok = st.Get(key)
+				if ok {
+					break
+				}
 			}
-		}
 
+		*/
+		val, ok = db.concurrentSSTableSearch(key)
 	}
 
 	// The value shuold be deleted so the value cannot be found
@@ -263,30 +264,10 @@ func (db *DB) handleQueue() {
 // We parse the log files since, if the database unexpectedly shuts down we can recover
 // the data.
 func (db *DB) parseLogFiles() error {
-	paths, err := ioutil.ReadDir(db.ssdir)
-	if err != nil {
-		// create the ss table directory
-		utils.PrintDebug("log folder was not found, creating dir: %s", db.ssdir)
-		if err := os.Mkdir(db.ssdir, 0755); err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	var pathStrings []string
-	for _, path := range paths {
-		// skip non log files
-		if !strings.HasSuffix(path.Name(), ".lg") {
-			continue
-		}
-
-		filePath := filepath.Join(db.ssdir, path.Name())
-		pathStrings = append(pathStrings, filePath)
-	}
+	fileNames := utils.ListFilesWithSuffix(db.ssdir, ".lg")
 
 	// we want create memtables and append them to the queue
-	for _, path := range pathStrings {
+	for _, path := range fileNames {
 		table, err := mem.CreateTableFromLog(path)
 		if err != nil {
 			return err
@@ -306,33 +287,11 @@ func (db *DB) parseLogFiles() error {
 
 // parseSSTableDirectory finds all of the sstable files and adds them to the list.
 func (db *DB) parseSSTableDirectory() error {
-	paths, err := ioutil.ReadDir(db.ssdir)
-	if err != nil {
-		// create the ss table directory
-
-		utils.PrintDebug("sstable folder was not found, creating dir: %s", db.ssdir)
-		if err := os.Mkdir(db.ssdir, 0755); err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	var pathStrings []string
-	for _, path := range paths {
-		// skip files that are not sstables
-		if !strings.HasSuffix(path.Name(), ".ss") {
-			continue
-		}
-
-		filePath := filepath.Join(db.ssdir, path.Name())
-		pathStrings = append(pathStrings, filePath)
-	}
-
-	sort.Strings(pathStrings)
+	fileNames := utils.ListFilesWithSuffix(db.ssdir, ".ss")
+	sort.Strings(fileNames)
 
 	var sstlbs []*sstable.SSTable
-	for _, path := range pathStrings {
+	for _, path := range fileNames {
 		sst := sstable.NewSSTable(path)
 		sstlbs = append([]*sstable.SSTable{sst}, sstlbs...)
 	}
