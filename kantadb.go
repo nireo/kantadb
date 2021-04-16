@@ -19,6 +19,7 @@ import (
 var queueMutex = &sync.Mutex{}
 var memMutex = &sync.Mutex{}
 var ssMutex = &sync.Mutex{}
+var ssReadMutex = &sync.Mutex{}
 
 // DB represents the database as a whole.
 type DB struct {
@@ -28,6 +29,13 @@ type DB struct {
 	maxMEMsize int
 	ssdir      string
 	MEMQueue   []*mem.MEM
+}
+
+// ssTableSearch represents a value from the sstables, where the index is the index of sstable.
+// The index is used to determine which value is the most fresh.
+type ssTableSearch struct {
+	index int
+	value string
 }
 
 // Config represents different parameters to change te default behaviour of the database
@@ -129,6 +137,7 @@ func (db *DB) Get(key string) (string, bool) {
 				break
 			}
 		}
+
 	}
 
 	// The value shuold be deleted so the value cannot be found
@@ -336,6 +345,53 @@ func (db *DB) parseSSTableDirectory() error {
 	// all of the tables are parsed now we need to create some kind of
 	// sparsing index for all of the sstables, but that will come later.
 	return nil
+}
+
+// concurrentSSTableSearch searches through all the sstables to find the most recent value.
+func (db *DB) concurrentSSTableSearch(key string) (string, bool) {
+	var (
+		val string = ""
+		ok  bool   = false
+	)
+
+	// no new sstables while we're searching them
+	ssMutex.Lock()
+
+	itemsChan := make(chan ssTableSearch)
+	wg := &sync.WaitGroup{}
+
+	wg.Add(len(db.SSTables))
+
+	for index, table := range db.SSTables {
+		go func(i int, tbl *sstable.SSTable) {
+			defer wg.Done()
+
+			val, ok := tbl.Get(key)
+			if ok {
+				itemsChan <- ssTableSearch{
+					index: i,
+					value: val,
+				}
+			}
+		}(index, table)
+	}
+
+	// go through all of the sstables. we need to go through them to get the most recent result.
+	wg.Wait()
+	close(itemsChan)
+
+	mostRecentIndex := len(db.SSTables)
+	for item := range itemsChan {
+		if item.index <= mostRecentIndex {
+			val = item.value
+			ok = true
+			mostRecentIndex = item.index
+		}
+	}
+
+	ssMutex.Unlock()
+
+	return val, ok
 }
 
 // Stop clears the data gracefully from the memtables are sstable write queue
