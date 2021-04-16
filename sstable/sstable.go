@@ -6,12 +6,12 @@ import (
 
 	"github.com/emirpasic/gods/trees/redblacktree"
 	"github.com/nireo/kantadb/entries"
+	"github.com/nireo/kantadb/utils"
 	"github.com/willf/bloom"
 )
 
 // SSTable represents a sorted list of key-value pairs stored in a given file.
 type SSTable struct {
-	// TODO: use the tree for sparse index
 	Tree        *redblacktree.Tree
 	Filename    string // the file in which the sstable is stored
 	BloomFilter *bloom.BloomFilter
@@ -72,10 +72,32 @@ func (ss *SSTable) AppendToTable(e *entries.Entry) error {
 	return nil
 }
 
+// GetFilterFilename removes the .ss suffix and returns the same file with the .fltr name.
+func (ss *SSTable) GetFilterFilename() string {
+	withoutSuffix := strings.TrimSuffix(ss.Filename, ".ss")
+	return withoutSuffix + ".fltr"
+}
+
+// ParseFilterFromTable reads a filter file containing the data for a bloom filter and then
+// builds the sstables bloom filter from it.
+func (ss *SSTable) ParseFilterFromDirectory() error {
+	file, err := os.Open(ss.GetFilterFilename())
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// just load the bloom filter from the file
+	if _, err := ss.BloomFilter.ReadFrom(file); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // WriteFilterToDisk takes the bloom filter and places it into disk
 func (ss *SSTable) WriteFilterToDisk() error {
-	withoutSuffix := strings.TrimSuffix(ss.Filename, ".ss")
-	file, err := os.Create(withoutSuffix + ".fltr")
+	file, err := os.Create(ss.GetFilterFilename())
 	if err != nil {
 		return err
 	}
@@ -85,6 +107,8 @@ func (ss *SSTable) WriteFilterToDisk() error {
 	if _, err := ss.BloomFilter.WriteTo(file); err != nil {
 		return err
 	}
+
+	utils.PrintDebug("created a new filter file at: %s", ss.GetFilterFilename())
 
 	return nil
 }

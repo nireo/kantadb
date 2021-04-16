@@ -17,7 +17,6 @@ import (
 var queueMutex = &sync.Mutex{}
 var memMutex = &sync.Mutex{}
 var ssMutex = &sync.Mutex{}
-var ssReadMutex = &sync.Mutex{}
 
 // DB represents the database as a whole.
 type DB struct {
@@ -126,18 +125,6 @@ func (db *DB) Get(key string) (string, bool) {
 
 	// if that value still hasn't been found search in the sstables.
 	if !ok {
-		// note that we start searching from the newest sstable
-
-		// TODO: create workers for going through values
-		/*
-			for _, st := range db.SSTables {
-				val, ok = st.Get(key)
-				if ok {
-					break
-				}
-			}
-
-		*/
 		val, ok = db.concurrentSSTableSearch(key)
 	}
 
@@ -241,8 +228,15 @@ func (db *DB) handleQueue() {
 
 			entrs := db.MEMQueue[i].ConvertIntoEntries()
 			for _, e := range entrs {
+				// a bloom filter is just a optimization to that helps finding out
+				// if a value has already been seen.
+				sst.BloomFilter.Add([]byte(e.Key))
 				file.Write(e.ToBinary())
 			}
+
+			// after constructing the bloom filter in the previous loop we can just
+			// write the bloom filter into a filter file.
+			sst.WriteFilterToDisk()
 
 			utils.PrintDebug("created a new sstable at: %s", sst.Filename)
 
@@ -293,6 +287,12 @@ func (db *DB) parseSSTableDirectory() error {
 	var sstlbs []*sstable.SSTable
 	for _, path := range fileNames {
 		sst := sstable.NewSSTable(path)
+
+		// check if that sstable had a filter file
+		if err := sst.ParseFilterFromDirectory(); err != nil {
+			utils.PrintDebug("could not parse filter file: %s", err)
+		}
+
 		sstlbs = append([]*sstable.SSTable{sst}, sstlbs...)
 	}
 
