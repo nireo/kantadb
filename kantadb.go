@@ -356,7 +356,7 @@ func (db *DB) concurrentSSTableSearch(key string) (string, bool) {
 }
 
 // compactNTables combines the last n sstables.
-func (db *DB) compactNTables(n int) error {
+func (db *DB) CompactNTables(n int) error {
 	// to make sure the file timestamp is not a false representation we use the
 	// most recently compacted sstables timestamp
 
@@ -364,13 +364,18 @@ func (db *DB) compactNTables(n int) error {
 		return errors.New("the number of tables to compact exceed number of tables")
 	}
 
+	// This is used to display debugging information
+	startTime := time.Now()
+
 	// make sure there are no changes made into the files.
 	ssMutex.Lock()
 
 	var filename string
 	finalValues := make(map[string]string)
-	for i := len(db.SSTables) - 1; i >= len(db.SSTables)-n+1; i-- {
-		filename = "tmp-" + db.SSTables[i].Filename
+
+	utils.PrintDebug("from %d sstables compacting %d", len(db.SSTables), n)
+	for i := len(db.SSTables) - 1; i >= len(db.SSTables)-n; i-- {
+		filename = db.SSTables[i].Filename + ".tmp"
 		ssFile, err := os.Open(db.SSTables[i].Filename)
 		if err != nil {
 			return fmt.Errorf("could not compact file: %s", err)
@@ -390,6 +395,7 @@ func (db *DB) compactNTables(n int) error {
 		}
 	}
 
+	utils.PrintDebug("creating compacted result file...")
 	finalSst := sstable.NewSSTable(filename)
 	// write the final and most up-to-date values to the new file.
 	file, err := os.Create(filename)
@@ -415,32 +421,57 @@ func (db *DB) compactNTables(n int) error {
 		file.Write(entry.ToBinary())
 	}
 
+	// now that each value has surely been stored we can remove the older files
+	// we do this in a seperate loop such that there is no room for problems.
+
+	// btw we need this check since otherwise we cannot really delete all the items without
+	// there being problems.
+	if len(db.SSTables) == n {
+		db.SSTables = []*sstable.SSTable{}
+
+		for _, file := range db.SSTables {
+			utils.PrintDebug("deleting sstable %s", file.Filename)
+			if err := os.Remove(file.Filename); err != nil {
+				return err
+			}
+
+			if err := os.Remove(file.GetFilterFilename()); err != nil {
+				return err
+			}
+		}
+	} else {
+		for i := len(db.SSTables) - 1; i >= len(db.SSTables)-n; i-- {
+			utils.PrintDebug("deleting sstable %s", db.SSTables[i].Filename)
+			if err := os.Remove(db.SSTables[i].Filename); err != nil {
+				return err
+			}
+
+			if err := os.Remove(db.SSTables[i].GetFilterFilename()); err != nil {
+				return err
+			}
+
+			copy(db.SSTables[i:], db.SSTables[i+1:])
+			db.SSTables[len(db.SSTables)-1] = nil
+			db.SSTables = db.SSTables[:len(db.SSTables)-1]
+		}
+
+	}
+	utils.PrintDebug("moving tmp file as permanent")
+	// remove the tmp prefix from the compacted file
+	if err := os.Rename(filename, strings.Replace(filename, ".tmp", "", -1)); err != nil {
+		return err
+	}
+	finalSst.Filename = strings.Replace(filename, ".tmp", "", -1)
+	db.SSTables = append([]*sstable.SSTable{finalSst}, db.SSTables...)
+
+	utils.PrintDebug("writing compacted filter to disk...")
 	if err := finalSst.WriteFilterToDisk(); err != nil {
 		return fmt.Errorf("could not write compacted filter file to disk: %s", err)
 	}
 
-	// now that each value has surely been stored we can remove the older files
-	// we do this in a seperate loop such that there is no room for problems.
-	for i := len(db.SSTables) - 1; i >= len(db.SSTables)-n+1; i-- {
-		if err := os.Remove(db.SSTables[i].Filename); err != nil {
-			return err
-		}
-
-		if err := os.Remove(db.SSTables[i].GetFilterFilename()); err != nil {
-			return err
-		}
-
-		copy(db.SSTables[i:], db.SSTables[i+1:])
-		db.SSTables[len(db.SSTables)-1] = nil
-		db.SSTables = db.SSTables[:len(db.SSTables)-1]
-	}
-
-	// remove the tmp prefix from the compacted file
-	if err := os.Rename(filename, strings.Replace(filename, "tmp-", "", -1)); err != nil {
-		return err
-	}
-
 	ssMutex.Unlock()
+
+	utils.PrintDebug("finished compacting %d files. took: %v", n, time.Since(startTime))
 
 	return nil
 }
