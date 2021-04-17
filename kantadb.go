@@ -1,10 +1,12 @@
 package kantadb
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -351,6 +353,96 @@ func (db *DB) concurrentSSTableSearch(key string) (string, bool) {
 	ssMutex.Unlock()
 
 	return val, ok
+}
+
+// compactNTables combines the last n sstables.
+func (db *DB) compactNTables(n int) error {
+	// to make sure the file timestamp is not a false representation we use the
+	// most recently compacted sstables timestamp
+
+	if n > len(db.SSTables) {
+		return errors.New("the number of tables to compact exceed number of tables")
+	}
+
+	// make sure there are no changes made into the files.
+	ssMutex.Lock()
+
+	var filename string
+	finalValues := make(map[string]string)
+	for i := len(db.SSTables) - 1; i >= len(db.SSTables)-n+1; i-- {
+		filename = "tmp-" + db.SSTables[i].Filename
+		ssFile, err := os.Open(db.SSTables[i].Filename)
+		if err != nil {
+			return fmt.Errorf("could not compact file: %s", err)
+		}
+		defer ssFile.Close()
+
+		// create a entry reader to read all values from the files
+		entryScanner := entries.InitScanner(ssFile, 4096)
+
+		for {
+			entry, err := entryScanner.ReadNext()
+			if err != nil {
+				break
+			}
+
+			finalValues[entry.Key] = entry.Value
+		}
+	}
+
+	finalSst := sstable.NewSSTable(filename)
+	// write the final and most up-to-date values to the new file.
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	for key, value := range finalValues {
+		// if the most updated value for given key is equal to a tombstone block
+		// meaning the key has been deleted. So don't include it.
+		if value == entries.TombstoneValue {
+			continue
+		}
+
+		entry := &entries.Entry{
+			Type:  entries.KVPair,
+			Key:   key,
+			Value: value,
+		}
+
+		finalSst.BloomFilter.Add([]byte(key))
+		file.Write(entry.ToBinary())
+	}
+
+	if err := finalSst.WriteFilterToDisk(); err != nil {
+		return fmt.Errorf("could not write compacted filter file to disk: %s", err)
+	}
+
+	// now that each value has surely been stored we can remove the older files
+	// we do this in a seperate loop such that there is no room for problems.
+	for i := len(db.SSTables) - 1; i >= len(db.SSTables)-n+1; i-- {
+		if err := os.Remove(db.SSTables[i].Filename); err != nil {
+			return err
+		}
+
+		if err := os.Remove(db.SSTables[i].GetFilterFilename()); err != nil {
+			return err
+		}
+
+		copy(db.SSTables[i:], db.SSTables[i+1:])
+		db.SSTables[len(db.SSTables)-1] = nil
+		db.SSTables = db.SSTables[:len(db.SSTables)-1]
+	}
+
+	// remove the tmp prefix from the compacted file
+	if err := os.Rename(filename, strings.Replace(filename, "tmp-", "", -1)); err != nil {
+		return err
+	}
+
+	ssMutex.Unlock()
+
+	return nil
 }
 
 // Stop clears the data gracefully from the memtables are sstable write queue
