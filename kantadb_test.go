@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -223,5 +224,89 @@ func TestLogFileCreation(t *testing.T) {
 
 	if err := os.RemoveAll(db.GetDirectory()); err != nil {
 		t.Errorf("error removing database folder: %s", err)
+	}
+}
+
+func TestFilterFileCreation(t *testing.T) {
+	db := kantadb.New(kantadb.DefaultConfiguration())
+	db.Run()
+
+	rand.Seed(time.Now().UnixNano())
+
+	for i := 0; i < 1e5; i++ {
+		randomNumber := rand.Int()
+		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
+	}
+
+	// wait for all of the sstables to go through to disk
+	time.Sleep(time.Millisecond * 200)
+
+	sstables, err := ioutil.ReadDir(db.GetDirectory())
+	if err != nil {
+		t.Errorf("could not find files in the testfolder: %s", err)
+	}
+
+	if len(sstables) == 0 {
+		t.Errorf("there were no files in the directory")
+	}
+
+	// go through all of the sstables and make sure they have a bloom filter file.
+	for _, ssFile := range sstables {
+		if strings.HasSuffix(ssFile.Name(), ".ss") {
+			withoutSuffix := strings.TrimSuffix(ssFile.Name(), ".ss")
+			if _, err := os.Stat(filepath.Join(db.GetDirectory(), withoutSuffix+".fltr")); os.IsNotExist(err) {
+				t.Errorf("a filter file does not exist for %s", ssFile.Name())
+			}
+		}
+	}
+
+	if err := os.RemoveAll(db.GetDirectory()); err != nil {
+		t.Errorf("could not delete database folder")
+	}
+}
+
+func TestEverySSTableHasFilter(t *testing.T) {
+	db := kantadb.New(kantadb.DefaultConfiguration())
+	db.Run()
+
+	rand.Seed(time.Now().UnixNano())
+
+	for i := 0; i < 1e5; i++ {
+		randomNumber := rand.Int()
+		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
+	}
+
+	// wait for all of the sstables to go through to disk
+	time.Sleep(time.Millisecond * 200)
+
+	sstables, err := ioutil.ReadDir(db.GetDirectory())
+	if err != nil {
+		t.Errorf("could not find files in the testfolder: %s", err)
+	}
+
+	if len(sstables) == 0 {
+		t.Errorf("there were no files in the directory")
+	}
+
+	// go through all of the sstables and make sure they have a bloom filter file.
+	ssFileCount := 0
+	fltrFileCount := 0
+
+	for _, file := range sstables {
+		if strings.HasSuffix(file.Name(), ".ss") {
+			ssFileCount++
+		}
+
+		if strings.HasSuffix(file.Name(), ".fltr") {
+			fltrFileCount++
+		}
+	}
+
+	if ssFileCount != fltrFileCount {
+		t.Errorf("there weren't the same number of .ss and .fltr files")
+	}
+
+	if err := os.RemoveAll(db.GetDirectory()); err != nil {
+		t.Errorf("could not delete database folder")
 	}
 }

@@ -46,7 +46,7 @@ type Config struct {
 func DefaultConfiguration() *Config {
 	return &Config{
 		Debug:      true,
-		MaxMemSize: 1024,
+		MaxMemSize: 4096,
 		StorageDir: "./kantadb",
 	}
 }
