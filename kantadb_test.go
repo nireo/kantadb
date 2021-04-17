@@ -311,7 +311,7 @@ func TestEverySSTableHasFilter(t *testing.T) {
 	}
 }
 
-func TestCompaction(t *testing.T) {
+func TestCompactionSimple(t *testing.T) {
 	db := kantadb.New(kantadb.DefaultConfiguration())
 	db.Run()
 
@@ -347,6 +347,83 @@ func TestCompaction(t *testing.T) {
 	// so that:
 	if err := db.CompactNTables(ssFileCount); err != nil {
 		t.Errorf("error while compacting files: %s", err)
+	}
+
+	if err := os.RemoveAll(db.GetDirectory()); err != nil {
+		t.Errorf("could not delete database folder")
+	}
+}
+
+func TestCompactionFiles(t *testing.T) {
+	db := kantadb.New(kantadb.DefaultConfiguration())
+	db.Run()
+
+	rand.Seed(time.Now().UnixNano())
+
+	keys := []string{}
+	for i := 0; i < 8000; i++ {
+		randomNumber := rand.Int()
+
+		key := strconv.Itoa(randomNumber)
+		db.Put(key, "value-"+strconv.Itoa(randomNumber))
+
+		if randomNumber%7 == 0 {
+			keys = append(keys, key)
+		}
+	}
+
+	// wait for all of the sstables to go through to disk
+	time.Sleep(time.Millisecond * 200)
+
+	sstables, err := ioutil.ReadDir(db.GetDirectory())
+	if err != nil {
+		t.Errorf("could not find files in the testfolder: %s", err)
+	}
+
+	if len(sstables) == 0 {
+		t.Errorf("there were no files in the directory")
+	}
+
+	// go through all of the sstables and make sure they have a bloom filter file.
+	ssFileCount := 0
+
+	for _, file := range sstables {
+		if strings.HasSuffix(file.Name(), ".ss") {
+			ssFileCount++
+		}
+	}
+
+	// we want to create a single sstable which contains all of the other sstables.
+	// so that:
+	if err := db.CompactNTables(ssFileCount); err != nil {
+		t.Errorf("error while compacting files: %s", err)
+	}
+
+	// go through all of the sstables and make sure they have a bloom filter file.
+	ssFileCount = 0
+	fltrCount := 0
+	for _, file := range sstables {
+		if strings.HasSuffix(file.Name(), ".ss") {
+			ssFileCount++
+		}
+
+		if strings.HasSuffix(file.Name(), ".fltr") {
+			fltrCount++
+		}
+	}
+
+	if ssFileCount != 1 {
+		t.Errorf("there are more than one sstables after compaction")
+	}
+
+	if fltrCount != 1 {
+		t.Errorf("there are more than one filter file after completion")
+	}
+
+	for _, key := range keys {
+		if _, ok := db.Get(key); !ok {
+			t.Errorf("could not get key: %s", key)
+		}
 	}
 
 	if err := os.RemoveAll(db.GetDirectory()); err != nil {

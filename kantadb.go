@@ -127,7 +127,11 @@ func (db *DB) Get(key string) (string, bool) {
 
 	// if that value still hasn't been found search in the sstables.
 	if !ok {
-		val, ok = db.concurrentSSTableSearch(key)
+		if len(db.SSTables) == 1 {
+			val, ok = db.SSTables[0].Get(key)
+		} else {
+			val, ok = db.concurrentSSTableSearch(key)
+		}
 	}
 
 	// The value shuold be deleted so the value cannot be found
