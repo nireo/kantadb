@@ -12,8 +12,8 @@ import (
 
 // SSTable represents a sorted list of key-value pairs stored in a given file.
 type SSTable struct {
-	Tree        *redblacktree.Tree
-	Filename    string // the file in which the sstable is stored
+	Tree        *redblacktree.Tree // Mappings to the key offsets in the file.
+	Filename    string             // the file in which the sstable is stored
 	BloomFilter *bloom.BloomFilter
 }
 

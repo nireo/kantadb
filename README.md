@@ -25,7 +25,7 @@ import  (
 
 
 func main() {
-    db := kantadb.New(kantadb.DefaultOptions())
+    db := kantadb.New(kantadb.DefaultConfiguration())
     defer db.Stop()
 
     db.Run()
@@ -38,6 +38,8 @@ func main() {
     if !ok {
         log.Println("value has not been found")
     }
+
+    log.Printf("got value %s", value)
 
     // delete the value
     db.Delete("hello")
