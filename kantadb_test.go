@@ -205,6 +205,45 @@ func TestLogFileCreation(t *testing.T) {
 	}
 }
 
+func TestLogFileRecovery(t *testing.T) {
+	db := createTestDatabase(t)
+
+	db.Put("test1", "value2")
+	db.Put("test2", "value2")
+	db.Put("test3", "value2")
+	db.Put("test4", "value2")
+	db.Put("test5", "value2")
+	db.Put("test6", "value2")
+	db.Put("test7", "value2")
+
+	files, err := ioutil.ReadDir(db.GetDirectory())
+	if err != nil {
+		t.Errorf("could not find files in the testfolder: %s", err)
+	}
+
+	if len(files) != 1 {
+		t.Fatalf("there was a wrong number of log files. got=%d", len(files))
+	}
+
+	if !strings.HasSuffix(files[0].Name(), ".lg") {
+		t.Errorf("the file is not a log file got filename: %s", files[0].Name())
+	}
+
+	// we don't want to stop the database since that places the queue into sstables.
+	// instead we will forcefully shut down the database leaving only the logs.
+	db.Alive = false
+	// creating a new database reads the log files and recovers the data
+
+	db2 := kantadb.New(kantadb.DefaultConfiguration())
+	db2.Run()
+
+	for i := 1; i <= 7; i++ {
+		if _, ok := db2.Get("test" + strconv.Itoa(i)); !ok {
+			t.Errorf("coult not get value")
+		}
+	}
+}
+
 func TestFilterFileCreation(t *testing.T) {
 	db := createTestDatabase(t)
 

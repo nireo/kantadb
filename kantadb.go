@@ -405,6 +405,7 @@ func (db *DB) CompactNTables(n int) error {
 	}
 
 	utils.PrintDebug("creating compacted result file...")
+
 	finalSst := sstable.NewSSTable(filename)
 	// write the final and most up-to-date values to the new file.
 	file, err := os.Create(filename)
