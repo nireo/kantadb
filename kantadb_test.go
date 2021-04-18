@@ -311,50 +311,7 @@ func TestEverySSTableHasFilter(t *testing.T) {
 	}
 }
 
-func TestCompactionSimple(t *testing.T) {
-	db := kantadb.New(kantadb.DefaultConfiguration())
-	db.Run()
-
-	rand.Seed(time.Now().UnixNano())
-
-	for i := 0; i < 1e5; i++ {
-		randomNumber := rand.Int()
-		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
-	}
-
-	// wait for all of the sstables to go through to disk
-	time.Sleep(time.Millisecond * 200)
-
-	sstables, err := ioutil.ReadDir(db.GetDirectory())
-	if err != nil {
-		t.Errorf("could not find files in the testfolder: %s", err)
-	}
-
-	if len(sstables) == 0 {
-		t.Errorf("there were no files in the directory")
-	}
-
-	// go through all of the sstables and make sure they have a bloom filter file.
-	ssFileCount := 0
-
-	for _, file := range sstables {
-		if strings.HasSuffix(file.Name(), ".ss") {
-			ssFileCount++
-		}
-	}
-
-	// we want to create a single sstable which contains all of the other sstables.
-	// so that:
-	if err := db.CompactNTables(ssFileCount); err != nil {
-		t.Errorf("error while compacting files: %s", err)
-	}
-
-	if err := os.RemoveAll(db.GetDirectory()); err != nil {
-		t.Errorf("could not delete database folder")
-	}
-}
-
-func TestCompactionFiles(t *testing.T) {
+func TestFullCompaction(t *testing.T) {
 	db := kantadb.New(kantadb.DefaultConfiguration())
 	db.Run()
 
@@ -424,6 +381,74 @@ func TestCompactionFiles(t *testing.T) {
 		if _, ok := db.Get(key); !ok {
 			t.Errorf("could not get key: %s", key)
 		}
+	}
+
+	if err := os.RemoveAll(db.GetDirectory()); err != nil {
+		t.Errorf("could not delete database folder")
+	}
+}
+
+func TestPartialCompaction(t *testing.T) {
+	db := kantadb.New(kantadb.DefaultConfiguration())
+	db.Run()
+
+	rand.Seed(time.Now().UnixNano())
+
+	for i := 0; i < 20000; i++ {
+		randomNumber := rand.Int()
+
+		key := strconv.Itoa(randomNumber)
+		db.Put(key, "value-"+strconv.Itoa(randomNumber))
+	}
+
+	// wait for all of the sstables to go through to disk
+	time.Sleep(time.Millisecond * 200)
+
+	sstables, err := ioutil.ReadDir(db.GetDirectory())
+	if err != nil {
+		t.Errorf("could not find files in the testfolder: %s", err)
+	}
+
+	if len(sstables) == 0 {
+		t.Errorf("there were no files in the directory")
+	}
+
+	// go through all of the sstables and make sure they have a bloom filter file.
+	ssFileCount := 0
+
+	for _, file := range sstables {
+		if strings.HasSuffix(file.Name(), ".ss") {
+			ssFileCount++
+		}
+	}
+
+	if err := db.CompactNTables(2); err != nil {
+		t.Errorf("error while compacting files: %s", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	// count the tables to see if there is a right amount.
+	newFileCount := 0
+	fltrCount := 0
+	for _, file := range sstables {
+		if strings.HasSuffix(file.Name(), ".ss") {
+			newFileCount++
+		}
+
+		if strings.HasSuffix(file.Name(), ".fltr") {
+			fltrCount++
+		}
+	}
+
+	// we use -1 since the compaction function deletes 2 sstables but then creates an additional
+	// sstable that contains all of the data.
+	if db.GetTableSize() != ssFileCount-1 {
+		t.Errorf("wrong amount of sstables. got=%d want=%d", newFileCount, ssFileCount-1)
+	}
+
+	if db.GetTableSize() != ssFileCount-1 {
+		t.Errorf("wrong amount of filters. got=%d want=%d", fltrCount, ssFileCount-1)
 	}
 
 	if err := os.RemoveAll(db.GetDirectory()); err != nil {

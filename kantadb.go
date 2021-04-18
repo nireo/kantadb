@@ -359,6 +359,11 @@ func (db *DB) concurrentSSTableSearch(key string) (string, bool) {
 	return val, ok
 }
 
+// GetTableSize returns the amount of sstables indexed
+func (db *DB) GetTableSize() int {
+	return len(db.SSTables)
+}
+
 // compactNTables combines the last n sstables.
 func (db *DB) CompactNTables(n int) error {
 	// to make sure the file timestamp is not a false representation we use the
@@ -431,6 +436,7 @@ func (db *DB) CompactNTables(n int) error {
 	// btw we need this check since otherwise we cannot really delete all the items without
 	// there being problems.
 	if len(db.SSTables) == n {
+		utils.PrintDebug("deleting all sstables...")
 		db.SSTables = []*sstable.SSTable{}
 
 		for _, file := range db.SSTables {
@@ -444,8 +450,9 @@ func (db *DB) CompactNTables(n int) error {
 			}
 		}
 	} else {
-		for i := len(db.SSTables) - 1; i >= len(db.SSTables)-n; i-- {
-			utils.PrintDebug("deleting sstable %s", db.SSTables[i].Filename)
+		originalLength := len(db.SSTables)
+		for i := originalLength - 1; i >= originalLength-n; i-- {
+			utils.PrintDebug("deleting sstable %s at index %d", db.SSTables[i].Filename, i)
 			if err := os.Remove(db.SSTables[i].Filename); err != nil {
 				return err
 			}
@@ -458,8 +465,8 @@ func (db *DB) CompactNTables(n int) error {
 			db.SSTables[len(db.SSTables)-1] = nil
 			db.SSTables = db.SSTables[:len(db.SSTables)-1]
 		}
-
 	}
+
 	utils.PrintDebug("moving tmp file as permanent")
 	// remove the tmp prefix from the compacted file
 	if err := os.Rename(filename, strings.Replace(filename, ".tmp", "", -1)); err != nil {
@@ -468,13 +475,14 @@ func (db *DB) CompactNTables(n int) error {
 	finalSst.Filename = strings.Replace(filename, ".tmp", "", -1)
 	db.SSTables = append([]*sstable.SSTable{finalSst}, db.SSTables...)
 
+	utils.PrintDebug("currently there are %d sstables", len(db.SSTables))
+
 	utils.PrintDebug("writing compacted filter to disk...")
 	if err := finalSst.WriteFilterToDisk(); err != nil {
 		return fmt.Errorf("could not write compacted filter file to disk: %s", err)
 	}
 
 	ssMutex.Unlock()
-
 	utils.PrintDebug("finished compacting %d files. took: %v", n, time.Since(startTime))
 
 	return nil
