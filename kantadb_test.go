@@ -14,26 +14,32 @@ import (
 	"github.com/nireo/kantadb"
 )
 
-func TestFolderCreated(t *testing.T) {
+func createTestDatabase(t *testing.T) *kantadb.DB {
+	t.Helper()
 	db := kantadb.New(kantadb.DefaultConfiguration())
 	// start running the database services
 	db.Run()
 
+	t.Cleanup(func() {
+		// remove all the persistance related data
+		if err := os.RemoveAll(db.GetDirectory()); err != nil {
+			log.Printf("could not delete database folder")
+		}
+	})
+
+	return db
+}
+
+func TestFolderCreated(t *testing.T) {
+	db := createTestDatabase(t)
+
 	if _, err := os.Stat(db.GetDirectory()); os.IsNotExist(err) {
 		t.Errorf("could not create new directory")
-	}
-
-	// remove the newly generated folder
-	if err := os.Remove(db.GetDirectory()); err != nil {
-		log.Printf("could not delete database folder")
 	}
 }
 
 func TestBasicMemoryOperations(t *testing.T) {
-	db := kantadb.New(kantadb.DefaultConfiguration())
-	db.Run()
-
-	// test placing values into the database
+	db := createTestDatabase(t)
 	keys := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
 	for _, key := range keys {
 		db.Put(key, "value-"+key)
@@ -57,16 +63,10 @@ func TestBasicMemoryOperations(t *testing.T) {
 	if val != "newvalue" {
 		t.Errorf("value wasn't updated. want=%q, got=%q", "newvalue", val)
 	}
-
-	// remove the newly generated folder
-	if err := os.Remove(db.GetDirectory()); err != nil {
-		log.Printf("could not delete database folder")
-	}
 }
 
 func TestAllGets(t *testing.T) {
-	db := kantadb.New(kantadb.DefaultConfiguration())
-	db.Run()
+	db := createTestDatabase(t)
 
 	// since the max value is 128
 	rand.Seed(time.Now().UnixNano())
@@ -90,16 +90,10 @@ func TestAllGets(t *testing.T) {
 			t.Errorf("error getting key: %s", key)
 		}
 	}
-
-	// remove the newly generated folder
-	if err := os.RemoveAll(db.GetDirectory()); err != nil {
-		log.Printf("could not delete database folder")
-	}
 }
 
 func TestSSTableCreation(t *testing.T) {
-	db := kantadb.New(kantadb.DefaultConfiguration())
-	db.Run()
+	db := createTestDatabase(t)
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -120,15 +114,10 @@ func TestSSTableCreation(t *testing.T) {
 	if len(sstables) == 0 {
 		t.Errorf("there were no files in the directory")
 	}
-
-	if err := os.RemoveAll(db.GetDirectory()); err != nil {
-		t.Errorf("could not delete database folder")
-	}
 }
 
 func TestPersistance(t *testing.T) {
-	db1 := kantadb.New(kantadb.DefaultConfiguration())
-	db1.Run()
+	db1 := createTestDatabase(t)
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -151,6 +140,8 @@ func TestPersistance(t *testing.T) {
 	// wait for all of the data to be written
 	time.Sleep(time.Second)
 
+	// don't create the database using the test helper since the cleanup functions will overlap
+	// note that since the database folder is the same the test cleanup will properly clean the data.
 	db2 := kantadb.New(kantadb.DefaultConfiguration())
 	db2.Run()
 
@@ -161,14 +152,10 @@ func TestPersistance(t *testing.T) {
 	}
 
 	time.Sleep(time.Millisecond * 100)
-	if err := os.RemoveAll(db1.GetDirectory()); err != nil {
-		t.Errorf("could not delete database folder: %s", err)
-	}
 }
 
 func TestDelete(t *testing.T) {
-	db := kantadb.New(kantadb.DefaultConfiguration())
-	db.Run()
+	db := createTestDatabase(t)
 
 	// create keys
 	stored := []string{}
@@ -191,15 +178,10 @@ func TestDelete(t *testing.T) {
 			t.Errorf("got key even though deleted: %s", key)
 		}
 	}
-
-	if err := os.RemoveAll(db.GetDirectory()); err != nil {
-		t.Errorf("error removing database folder: %s", err)
-	}
 }
 
 func TestLogFileCreation(t *testing.T) {
-	db := kantadb.New(kantadb.DefaultConfiguration())
-	db.Run()
+	db := createTestDatabase(t)
 
 	db.Put("test1", "value2")
 	db.Put("test2", "value2")
@@ -221,15 +203,10 @@ func TestLogFileCreation(t *testing.T) {
 	if !strings.HasSuffix(files[0].Name(), ".lg") {
 		t.Errorf("the file is not a log file got filename: %s", files[0].Name())
 	}
-
-	if err := os.RemoveAll(db.GetDirectory()); err != nil {
-		t.Errorf("error removing database folder: %s", err)
-	}
 }
 
 func TestFilterFileCreation(t *testing.T) {
-	db := kantadb.New(kantadb.DefaultConfiguration())
-	db.Run()
+	db := createTestDatabase(t)
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -259,15 +236,10 @@ func TestFilterFileCreation(t *testing.T) {
 			}
 		}
 	}
-
-	if err := os.RemoveAll(db.GetDirectory()); err != nil {
-		t.Errorf("could not delete database folder")
-	}
 }
 
 func TestEverySSTableHasFilter(t *testing.T) {
-	db := kantadb.New(kantadb.DefaultConfiguration())
-	db.Run()
+	db := createTestDatabase(t)
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -305,15 +277,10 @@ func TestEverySSTableHasFilter(t *testing.T) {
 	if ssFileCount != fltrFileCount {
 		t.Errorf("there weren't the same number of .ss and .fltr files")
 	}
-
-	if err := os.RemoveAll(db.GetDirectory()); err != nil {
-		t.Errorf("could not delete database folder")
-	}
 }
 
 func TestFullCompaction(t *testing.T) {
-	db := kantadb.New(kantadb.DefaultConfiguration())
-	db.Run()
+	db := createTestDatabase(t)
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -343,7 +310,6 @@ func TestFullCompaction(t *testing.T) {
 
 	// go through all of the sstables and make sure they have a bloom filter file.
 	ssFileCount := 0
-
 	for _, file := range sstables {
 		if strings.HasSuffix(file.Name(), ".ss") {
 			ssFileCount++
@@ -382,15 +348,10 @@ func TestFullCompaction(t *testing.T) {
 			t.Errorf("could not get key: %s", key)
 		}
 	}
-
-	if err := os.RemoveAll(db.GetDirectory()); err != nil {
-		t.Errorf("could not delete database folder")
-	}
 }
 
 func TestPartialCompaction(t *testing.T) {
-	db := kantadb.New(kantadb.DefaultConfiguration())
-	db.Run()
+	db := createTestDatabase(t)
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -449,9 +410,5 @@ func TestPartialCompaction(t *testing.T) {
 
 	if db.GetTableSize() != ssFileCount-1 {
 		t.Errorf("wrong amount of filters. got=%d want=%d", fltrCount, ssFileCount-1)
-	}
-
-	if err := os.RemoveAll(db.GetDirectory()); err != nil {
-		t.Errorf("could not delete database folder")
 	}
 }
