@@ -1,7 +1,6 @@
 package sstable
 
 import (
-	"bytes"
 	"os"
 	"strings"
 
@@ -21,14 +20,6 @@ type SSTable struct {
 	BloomFilter *bloom.BloomFilter
 }
 
-// WriteSSTable contains the sstable held in memory and it is to be written after
-// the table size is exceeded. This is to replace
-type WriteSSTable struct {
-	Filename    string
-	Buffer      *bytes.Buffer
-	BloomFilter *bloom.BloomFilter
-}
-
 // NewSSTable creates a sstable instance with a filename pointing to the sstable.
 func NewSSTable(name string) *SSTable {
 	return &SSTable{
@@ -43,46 +34,6 @@ func NewSSTableWithFilter(name string, filter *bloom.BloomFilter) *SSTable {
 		Filename:    name,
 		BloomFilter: filter,
 	}
-}
-
-// NewWriteSSTable creates a new sstable
-func NewWriteSSTable(name string) *WriteSSTable {
-	buffer := make([]byte, MaxTableSize)
-	return &WriteSSTable{
-		BloomFilter: bloom.New(20000, 5),
-		Filename:    name,
-		Buffer:      bytes.NewBuffer(buffer),
-	}
-}
-
-// WriteToDisk writes the content of the buffer into disks
-func (wt *WriteSSTable) WriteToDisk() error {
-	file, err := os.OpenFile(wt.Filename, os.O_APPEND|os.O_WRONLY, 0660)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	file.Write(wt.Buffer.Bytes())
-
-	// we are done with the write table after this so we just remove it.
-	wt = &WriteSSTable{}
-
-	return nil
-}
-
-// AppendToTable writes a key-value store to the writable sstable
-func (wt *WriteSSTable) AppendToTable(key, value string) error {
-	// the only error that could happen here is that the maximum size is exceeded
-
-	entry := &entries.Entry{
-		Value: value,
-		Key:   key,
-		Type:  entries.KVPair,
-	}
-
-	wt.Buffer.Write(entry.ToBinary())
-	return nil
 }
 
 // Get finds a key from the list of sstable files.
