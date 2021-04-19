@@ -16,6 +16,8 @@ import (
 	"github.com/nireo/kantadb/utils"
 )
 
+const MaxMemSize = 1 << 18
+
 var queueMutex = &sync.Mutex{}
 var memMutex = &sync.Mutex{}
 var ssMutex = &sync.Mutex{}
@@ -151,7 +153,7 @@ func (db *DB) Put(key, val string) {
 	size := db.MEM.Size()
 	memMutex.Unlock()
 
-	if size > db.maxMEMsize {
+	if size > MaxMemSize {
 		queueMutex.Lock()
 
 		// add the new in-memory table to the beginning of the list, such that we

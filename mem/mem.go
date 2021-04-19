@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 
@@ -24,7 +23,8 @@ var logFileWriteMutex = &sync.Mutex{}
 
 // MEM represents the in-memory data
 type MEM struct {
-	kvs         map[string]string
+	size        int64
+	tree        *redblacktree.Tree
 	logFilePath string
 }
 
@@ -37,22 +37,28 @@ func SetLogPath(path string) {
 // Put adds a value to the data
 func (m *MEM) Put(key, val string) {
 	m.WriteToLog(key, val)
-	m.kvs[key] = val
+
+	m.tree.Put(key, val)
+	m.addToSize(key, val)
+}
+
+func (m *MEM) addToSize(key, val string) {
+	m.size += int64(9 + len([]byte(key)) + len([]byte(val)))
 }
 
 // Get finds a value in the table and returns a status on if the item is found.
-func (m *MEM) Get(key string) (val string, ok bool) {
-	val, ok = m.kvs[key]
+func (m *MEM) Get(key string) (string, bool) {
+	val, ok := m.tree.Get(key)
+	if !ok {
+		return "", ok
+	}
 
-	return
+	return val.(string), ok
 }
 
 // Size returns the amount of elements in the table
 func (m *MEM) Size() int {
-	var size int
-	size = len(m.kvs)
-
-	return size
+	return int(m.size)
 }
 
 // New creates a new instance of a memory table
@@ -70,8 +76,9 @@ func New() *MEM {
 
 	utils.PrintDebug("created a log file at: %s", filePath)
 	return &MEM{
-		kvs:         make(map[string]string),
+		tree:        redblacktree.NewWithStringComparator(),
 		logFilePath: filePath,
+		size:        0,
 	}
 }
 
@@ -85,7 +92,7 @@ func CreateTableFromLog(logFilePath string) (*MEM, error) {
 	defer file.Close()
 
 	table := &MEM{
-		kvs:         make(map[string]string),
+		tree:        redblacktree.NewWithStringComparator(),
 		logFilePath: logFilePath,
 	}
 
@@ -97,7 +104,7 @@ func CreateTableFromLog(logFilePath string) (*MEM, error) {
 			break
 		}
 
-		table.kvs[entry.Key] = entry.Value
+		table.tree.Put(entry.Key, entry.Value)
 	}
 
 	utils.PrintDebug("created a table from log file of size: %d", table.Size())
@@ -115,18 +122,16 @@ func CreateTableFromLog(logFilePath string) (*MEM, error) {
 // then used to write values to the disk
 func (m *MEM) ConvertIntoEntries() []*entries.Entry {
 	var entrs []*entries.Entry
-	for key, value := range m.kvs {
+	iter := m.tree.Iterator()
+	for iter.Next() {
 		entrs = append(entrs, &entries.Entry{
-			Key:   key,
-			Value: value,
+			Key:   iter.Key().(string),
+			Value: iter.Value().(string),
 			Type:  entries.KVPair,
 		})
 	}
 
-	// sort them
-	sort.Slice(entrs, func(i, j int) bool {
-		return entrs[i].Key < entrs[j].Key
-	})
+	// no need to sort them since they're already sorted
 
 	return entrs
 }

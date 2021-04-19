@@ -361,25 +361,8 @@ func TestFullCompaction(t *testing.T) {
 		t.Errorf("error while compacting files: %s", err)
 	}
 
-	// go through all of the sstables and make sure they have a bloom filter file.
-	ssFileCount = 0
-	fltrCount := 0
-	for _, file := range sstables {
-		if strings.HasSuffix(file.Name(), ".ss") {
-			ssFileCount++
-		}
-
-		if strings.HasSuffix(file.Name(), ".fltr") {
-			fltrCount++
-		}
-	}
-
-	if ssFileCount != 1 {
+	if db.GetTableSize() != 1 {
 		t.Errorf("there are more than one sstables after compaction")
-	}
-
-	if fltrCount != 1 {
-		t.Errorf("there are more than one filter file after completion")
 	}
 
 	for _, key := range keys {
