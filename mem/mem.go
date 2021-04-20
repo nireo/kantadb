@@ -56,8 +56,8 @@ func (m *MEM) Get(key string) (string, bool) {
 }
 
 // Size returns the amount of elements in the table
-func (m *MEM) Size() int {
-	return int(m.size)
+func (m *MEM) Size() int64 {
+	return m.size
 }
 
 // New creates a new instance of a memory table
