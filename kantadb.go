@@ -98,12 +98,16 @@ func (db *DB) Run() error {
 		return fmt.Errorf("could not parse log directory or create directory for them: %s", err)
 	}
 
+	// Create a temporary directory for the compaction process
+	utils.CreateDirectory(filepath.Join(db.ssdir, "tmp"))
+
 	// we can create a new instance of a memory table since the file directory has been created for sure
 	db.MEM = mem.New()
 
 	// start checking for in-memory tables in the queue and start converting in-memory
 	// tables into sstables.
 	go db.handleQueue()
+	go db.runCompactionProcess()
 
 	return nil
 }
@@ -382,6 +386,7 @@ func (db *DB) CompactNTables(n int) error {
 
 	// make sure there are no changes made into the files.
 	ssMutex.Lock()
+	defer ssMutex.Unlock()
 
 	var filename string
 	finalValues := make(map[string]string)
@@ -487,10 +492,21 @@ func (db *DB) CompactNTables(n int) error {
 		return fmt.Errorf("could not write compacted filter file to disk: %s", err)
 	}
 
-	ssMutex.Unlock()
 	utils.PrintDebug("finished compacting %d files. took: %v", n, time.Since(startTime))
 
 	return nil
+}
+
+// runCompactionProcess periodically compacts data from the sstable list.
+func (db *DB) runCompactionProcess() {
+	for db.Alive {
+		if len(db.SSTables) < 2 {
+			time.Sleep(time.Second)
+			continue
+		}
+
+		time.Sleep(time.Second)
+	}
 }
 
 // Stop clears the data gracefully from the memtables are sstable write queue
