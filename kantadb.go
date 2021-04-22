@@ -3,6 +3,7 @@ package kantadb
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,13 +15,18 @@ import (
 	"github.com/nireo/kantadb/mem"
 	"github.com/nireo/kantadb/sstable"
 	"github.com/nireo/kantadb/utils"
+	"github.com/willf/bloom"
 )
 
 const MaxMemSize int64 = 1 << 18
 
+// 24 mb
+const MaxSSTableSize int64 = 1024 * 1014 * 24
+
 var queueMutex = &sync.Mutex{}
 var memMutex = &sync.Mutex{}
 var ssMutex = &sync.Mutex{}
+var compactionMutex = &sync.Mutex{}
 
 // DB represents the database as a whole.
 type DB struct {
@@ -495,6 +501,104 @@ func (db *DB) CompactNTables(n int) error {
 	utils.PrintDebug("finished compacting %d files. took: %v", n, time.Since(startTime))
 
 	return nil
+}
+
+func (db *DB) MergeFiles(f1, f2 string) error {
+	// no write or anything on the files for a little while
+	ssMutex.Lock()
+	if _, err := utils.CopyFile(f1, f1+".tmp"); err != nil {
+		return fmt.Errorf("could not copy file into into temp file: %s", err)
+	}
+
+	if _, err := utils.CopyFile(f2, f2+".tmp"); err != nil {
+		return fmt.Errorf("could not copy file into into temp file: %s", err)
+	}
+	ssMutex.Unlock()
+
+	values := make(map[string]string)
+	filesToMerge := []string{f1 + ".tmp", f2 + ".tmp"}
+
+	filter := bloom.New(20000, 5)
+	for _, filename := range filesToMerge {
+		filename = db.SSTables[i].Filename + ".tmp"
+		ssFile, err := os.Open(db.SSTables[i].Filename)
+		if err != nil {
+			return fmt.Errorf("could not compact file: %s", err)
+		}
+		defer ssFile.Close()
+
+		// create a entry reader to read all values from the files
+		entryScanner := entries.InitScanner(ssFile, 4096)
+
+		for {
+			entry, err := entryScanner.ReadNext()
+			if err != nil {
+				break
+			}
+
+			values[entry.Key] = entry.Value
+		}
+	}
+
+	// assuming that the f1 is the more recent file.
+	file, err := os.Create(f1 + ".tmpf")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	for key, value := range values {
+		// if the most updated value for given key is equal to a tombstone block
+		// meaning the key has been deleted. So don't include it.
+		if value == entries.TombstoneValue {
+			continue
+		}
+
+		entry := &entries.Entry{
+			Type:  entries.KVPair,
+			Key:   key,
+			Value: value,
+		}
+
+		filter.Add([]byte(key))
+		file.Write(entry.ToBinary())
+	}
+
+	ssMutex.Lock()
+	toDelete := []string{f1, f2, f1 + ".tmp", f2 + ".tmp"}
+	for _, toDel := range toDelete {
+		if err := os.Remove(toDel); err != nil {
+			return err
+		}
+	}
+
+	if err := os.Rename(file.Name(), strings.Replace(file.Name(), ".tmpf", "", -1)); err != nil {
+		return err
+	}
+	ssMutex.Unlock()
+
+	return nil
+}
+
+// GetCompactableFiles returns all of the files in the SSTable directory that are small enough.
+func (db *DB) GetCompactableFiles() []string {
+	var res []string
+
+	files, err := ioutil.ReadDir(db.ssdir)
+	if err != nil {
+		return []string{}
+	}
+
+	for _, file := range files {
+		// make sure the file is valid
+		if file.IsDir() || file.Size() > MaxSSTableSize || !strings.HasSuffix(file.Name(), ".ss") {
+			continue
+		}
+
+		res = append(res, file.Name())
+	}
+
+	return res
 }
 
 // runCompactionProcess periodically compacts data from the sstable list.
