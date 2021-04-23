@@ -3,12 +3,11 @@ package mem_test
 import (
 	"testing"
 
-	"github.com/nireo/kantadb/entries"
 	"github.com/nireo/kantadb/mem"
 )
 
 func TestSimpleOperations(t *testing.T) {
-	m := mem.New("testfile.log")
+	m := mem.New()
 
 	m.Put("hello", "world")
 	val, ok := m.Get("hello")
@@ -26,7 +25,7 @@ func TestSimpleOperations(t *testing.T) {
 }
 
 func TestConvertToEntries(t *testing.T) {
-	m := mem.New("testfile.log")
+	m := mem.New()
 
 	expectedKeyOrder := []string{"1", "2", "3"}
 
@@ -39,10 +38,6 @@ func TestConvertToEntries(t *testing.T) {
 	for index, entry := range entrs {
 		if entry.Key != expectedKeyOrder[index] {
 			t.Errorf("keys are not in expected order")
-		}
-
-		if entry.Type != entries.KVPair {
-			t.Errorf("entry is not of type KVPair")
 		}
 	}
 }

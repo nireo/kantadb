@@ -20,15 +20,10 @@ func checkEntries(t *testing.T, e1, e2 *entries.Entry) {
 	if e1.Value != e2.Value {
 		t.Errorf("got the wrong value. want=%q got=%q", e1.Value, e2.Value)
 	}
-
-	if e1.Type != e2.Type {
-		t.Errorf("the type doesn't match. want=%d got=%d", e1.Type, e2.Type)
-	}
 }
 
 func TestEntryBinary(t *testing.T) {
 	e := &entries.Entry{
-		Type:  entries.KVPair,
 		Value: "testval",
 		Key:   "testkey",
 	}
@@ -52,7 +47,6 @@ func TestEntryBinary(t *testing.T) {
 
 func TestBytesParse(t *testing.T) {
 	e := &entries.Entry{
-		Type:  entries.KVPair,
 		Value: "testval",
 		Key:   "testkey",
 	}
@@ -69,7 +63,6 @@ func TestBytesParse(t *testing.T) {
 
 func TestTombstone(t *testing.T) {
 	e := &entries.Entry{
-		Type:  entries.Tombstone,
 		Value: "\x00",
 		Key:   "testkey",
 	}
@@ -85,7 +78,6 @@ func TestTombstone(t *testing.T) {
 
 func TestAppendToFileAndParse(t *testing.T) {
 	e := &entries.Entry{
-		Type:  entries.KVPair,
 		Value: "testval",
 		Key:   "testkey",
 	}
@@ -116,7 +108,6 @@ func TestAppendToFileAndParse(t *testing.T) {
 
 func TestEntryScanner(t *testing.T) {
 	e := &entries.Entry{
-		Type:  entries.KVPair,
 		Value: "testval",
 		Key:   "testkey",
 	}
