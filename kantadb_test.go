@@ -191,17 +191,22 @@ func TestLogFileCreation(t *testing.T) {
 	db.Put("test6", "value2")
 	db.Put("test7", "value2")
 
+	// there should just be one log file created
 	files, err := ioutil.ReadDir(db.GetDirectory())
 	if err != nil {
-		t.Errorf("could not find files in the testfolder: %s", err)
+		t.Errorf("could not get files from directory")
 	}
 
-	if len(files) != 1 {
-		t.Fatalf("there was a wrong number of log files. got=%d", len(files))
+	// count the log files
+	lgCount := 0
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".lg") {
+			lgCount++
+		}
 	}
 
-	if !strings.HasSuffix(files[0].Name(), ".lg") {
-		t.Errorf("the file is not a log file got filename: %s", files[0].Name())
+	if lgCount != 1 {
+		t.Errorf("should only get a single log file, got=%d", lgCount)
 	}
 }
 
@@ -221,12 +226,15 @@ func TestLogFileRecovery(t *testing.T) {
 		t.Errorf("could not find files in the testfolder: %s", err)
 	}
 
-	if len(files) != 1 {
-		t.Fatalf("there was a wrong number of log files. got=%d", len(files))
+	lgCount := 0
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".lg") {
+			lgCount++
+		}
 	}
 
-	if !strings.HasSuffix(files[0].Name(), ".lg") {
-		t.Errorf("the file is not a log file got filename: %s", files[0].Name())
+	if lgCount != 1 {
+		t.Fatalf("there was a wrong number of log files. got=%d", len(files))
 	}
 
 	// we don't want to stop the database since that places the queue into sstables.

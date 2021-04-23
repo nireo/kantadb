@@ -437,7 +437,6 @@ func (db *DB) CompactNTables(n int) error {
 		}
 
 		entry := &entries.Entry{
-			Type:  entries.KVPair,
 			Key:   key,
 			Value: value,
 		}
@@ -520,8 +519,7 @@ func (db *DB) MergeFiles(f1, f2 string) error {
 
 	filter := bloom.New(20000, 5)
 	for _, filename := range filesToMerge {
-		filename = db.SSTables[i].Filename + ".tmp"
-		ssFile, err := os.Open(db.SSTables[i].Filename)
+		ssFile, err := os.Open(filename)
 		if err != nil {
 			return fmt.Errorf("could not compact file: %s", err)
 		}
@@ -555,7 +553,6 @@ func (db *DB) MergeFiles(f1, f2 string) error {
 		}
 
 		entry := &entries.Entry{
-			Type:  entries.KVPair,
 			Key:   key,
 			Value: value,
 		}

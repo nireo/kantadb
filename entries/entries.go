@@ -8,16 +8,7 @@ import (
 	"os"
 )
 
-// EntryType specifies which type of value the entry is, for example: a tombstone
-// or a key-value pair.
-type EntryType byte
-
 const (
-	// KVPair represents a key-value pair
-	KVPair EntryType = iota
-	// Tombstone represents a deleted value.
-	Tombstone
-
 	// TombstoneValue is the value given to deleted key-value pairs.
 	TombstoneValue string = "\x00"
 )
@@ -26,7 +17,6 @@ const (
 type Entry struct {
 	Key   string
 	Value string
-	Type  EntryType
 }
 
 // EntryScanner contains the logic and settings for parsing database entries from files.
@@ -53,21 +43,10 @@ func EntryFromBytes(bytes []byte) (*Entry, error) {
 		return nil, errors.New("the key and value lengths are invalid")
 	}
 
-	// check if tombstone value
-	val := string(bytes[9+klen : 9+klen+vlen])
-	tombstone := val == TombstoneValue
-
 	entry := &Entry{
-		Value: val,
 		Key:   string(bytes[9 : 9+klen]),
+		Value: string(bytes[9+klen : 9+klen+vlen]),
 	}
-
-	if tombstone {
-		entry.Type = Tombstone
-	} else {
-		entry.Type = KVPair
-	}
-
 	return entry, nil
 }
 

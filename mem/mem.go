@@ -126,7 +126,6 @@ func (m *MEM) ConvertIntoEntries() []*entries.Entry {
 		entrs = append(entrs, &entries.Entry{
 			Key:   iter.Key().(string),
 			Value: iter.Value().(string),
-			Type:  entries.KVPair,
 		})
 	}
 
@@ -142,7 +141,6 @@ func (m *MEM) WriteToLog(key, val string) {
 	entry := entries.Entry{
 		Key:   key,
 		Value: val,
-		Type:  entries.KVPair,
 	}
 
 	entry.AppendToFile(m.logFilePath)
