@@ -27,6 +27,7 @@ const MaxSSTableSize int64 = 1024 * 1014 * 24
 var queueMutex = &sync.Mutex{}
 var memMutex = &sync.Mutex{}
 var ssMutex = &sync.Mutex{}
+var ssListMutex = &sync.Mutex{}
 var compactionMutex = &sync.Mutex{}
 
 // DB represents the database as a whole.
@@ -140,11 +141,13 @@ func (db *DB) Get(key string) (string, bool) {
 
 	// if that value still hasn't been found search in the sstables.
 	if !ok {
+		ssMutex.Lock()
 		if len(db.SSTables) == 1 {
 			val, ok = db.SSTables[0].Get(key)
 		} else {
 			val, ok = db.concurrentSSTableSearch(key)
 		}
+		ssMutex.Unlock()
 	}
 
 	// The value shuold be deleted so the value cannot be found
@@ -232,7 +235,7 @@ func (db *DB) handleQueue() {
 		for i := len(db.MEMQueue) - 1; i >= 0; i-- {
 			timestamp := time.Now().UnixNano()
 
-			ssMutex.Lock()
+			ssListMutex.Lock()
 
 			filePath := filepath.Join(db.ssdir, fmt.Sprintf("%v.ss", timestamp))
 			sst := sstable.NewSSTable(filePath)
@@ -242,7 +245,7 @@ func (db *DB) handleQueue() {
 			if err != nil {
 				// error happened skip this and try again on the next iteration
 				utils.PrintDebug("error creating sstable: %s", err)
-				ssMutex.Unlock()
+				ssListMutex.Unlock()
 				continue
 			}
 			defer file.Close()
@@ -264,7 +267,7 @@ func (db *DB) handleQueue() {
 			// now just append the newest sstable to the beginning of the queue
 			db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
 
-			ssMutex.Unlock()
+			ssListMutex.Unlock()
 		}
 
 		// clean up the queue since we went through each item
@@ -334,9 +337,6 @@ func (db *DB) concurrentSSTableSearch(key string) (string, bool) {
 		ok  bool   = false
 	)
 
-	// no new sstables while we're searching them
-	ssMutex.Lock()
-
 	itemsChan := make(chan ssTableSearch)
 	wg := &sync.WaitGroup{}
 
@@ -369,8 +369,6 @@ func (db *DB) concurrentSSTableSearch(key string) (string, bool) {
 		}
 	}
 
-	ssMutex.Unlock()
-
 	return val, ok
 }
 
@@ -392,8 +390,8 @@ func (db *DB) CompactNTables(n int) error {
 	startTime := time.Now()
 
 	// make sure there are no changes made into the files.
-	ssMutex.Lock()
-	defer ssMutex.Unlock()
+	ssListMutex.Lock()
+	defer ssListMutex.Unlock()
 
 	var filename string
 	finalValues := make(map[string]string)
@@ -451,8 +449,11 @@ func (db *DB) CompactNTables(n int) error {
 
 	// btw we need this check since otherwise we cannot really delete all the items without
 	// there being problems.
+
+	ssMutex.Lock()
 	if len(db.SSTables) == n {
 		utils.PrintDebug("deleting all sstables...")
+
 		db.SSTables = []*sstable.SSTable{}
 
 		for _, file := range db.SSTables {
@@ -490,6 +491,7 @@ func (db *DB) CompactNTables(n int) error {
 	}
 	finalSst.Filename = strings.Replace(filename, ".tmp", "", -1)
 	db.SSTables = append([]*sstable.SSTable{finalSst}, db.SSTables...)
+	ssMutex.Unlock()
 
 	utils.PrintDebug("currently there are %d sstables", len(db.SSTables))
 
@@ -505,19 +507,19 @@ func (db *DB) CompactNTables(n int) error {
 
 func (db *DB) MergeFiles(f1, f2 string) error {
 	// no write or anything on the files for a little while
-	ssMutex.Lock()
+	ssListMutex.Lock()
 	ff1 := filepath.Join(db.ssdir, f1)
 	if _, err := utils.CopyFile(ff1, ff1+".tmp"); err != nil {
-		ssMutex.Unlock()
+		ssListMutex.Unlock()
 		return fmt.Errorf("could not copy file into into temp file: %s", err)
 	}
 
 	ff2 := filepath.Join(db.ssdir, f2)
 	if _, err := utils.CopyFile(ff2, ff2+".tmp"); err != nil {
-		ssMutex.Unlock()
+		ssListMutex.Unlock()
 		return fmt.Errorf("could not copy file into into temp file: %s", err)
 	}
-	ssMutex.Unlock()
+	ssListMutex.Unlock()
 
 	utils.PrintDebug("created temporary merge files at: %s and %s", ff1, ff2)
 
@@ -594,12 +596,14 @@ func (db *DB) MergeFiles(f1, f2 string) error {
 
 	utils.PrintDebug("renamde file final file")
 
+	ssListMutex.Lock()
 	utils.PrintDebug("current there are %d sstables", len(db.SSTables))
 	deletedFileIndex := db.GetSSTableIndex(ff2)
 	replacedFileIndex := db.GetSSTableIndex(ff1)
 
 	utils.PrintDebug("deleting sstable at index: %d; replacing at index: %d", deletedFileIndex, replacedFileIndex)
 
+	ssMutex.Lock()
 	db.SSTables[replacedFileIndex] = &sstable.SSTable{
 		Filename:    ff1,
 		BloomFilter: filter,
@@ -609,7 +613,9 @@ func (db *DB) MergeFiles(f1, f2 string) error {
 	copy(db.SSTables[deletedFileIndex:], db.SSTables[deletedFileIndex+1:])
 	db.SSTables[len(db.SSTables)-1] = nil
 	db.SSTables = db.SSTables[:len(db.SSTables)-1]
+	ssMutex.Unlock()
 	utils.PrintDebug("removed sstable")
+	ssListMutex.Unlock()
 
 	return nil
 }
@@ -663,27 +669,34 @@ func (db *DB) runCompactionProcess() {
 
 // Stop clears the data gracefully from the memtables are sstable write queue
 func (db *DB) Stop() error {
+	// if we're closing don't accept new queue entries
 	queueMutex.Lock()
+	defer queueMutex.Unlock()
 	db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
-	queueMutex.Unlock()
 
-	timestamp := time.Now().UnixNano()
-	filePath := filepath.Join(db.ssdir, fmt.Sprintf("%v.sstable", timestamp))
-	sst := sstable.NewSSTable(filePath)
+	ssListMutex.Lock()
+	for i := len(db.MEMQueue) - 1; i >= 0; i-- {
+		timestamp := time.Now().UnixNano()
+		filePath := filepath.Join(db.ssdir, fmt.Sprintf("%v.sstable", timestamp))
+		sst := sstable.NewSSTable(filePath)
 
-	// create the new file
-	file, err := os.Create(sst.Filename)
-	if err != nil {
-		// error happened skip this and try again on the next iteration
-		utils.PrintDebug("error creating sstable: %s", err)
-		return fmt.Errorf("could not write remaining memtable: %s", err)
+		// create the new file
+		file, err := os.Create(sst.Filename)
+		if err != nil {
+			// error happened skip this and try again on the next iteration
+			utils.PrintDebug("error creating sstable: %s", err)
+			return fmt.Errorf("could not write remaining memtable: %s", err)
+		}
+		defer file.Close()
+
+		entrs := db.MEMQueue[0].ConvertIntoEntries()
+		for _, e := range entrs {
+			file.Write(e.ToBinary())
+		}
 	}
-	defer file.Close()
 
-	entrs := db.MEMQueue[0].ConvertIntoEntries()
-	for _, e := range entrs {
-		file.Write(e.ToBinary())
-	}
+	db.MEMQueue = []*mem.MEM{}
+	ssListMutex.Unlock()
 
 	db.Alive = false
 	return nil

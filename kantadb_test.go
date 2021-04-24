@@ -304,7 +304,7 @@ func TestEverySSTableHasFilter(t *testing.T) {
 
 func TestFullCompaction(t *testing.T) {
 	db := createTestDatabase(t)
-	keys := writeNAndStore(db, 8000)
+	writeNValues(db, 8000)
 
 	// wait for all of the sstables to go through to disk
 	time.Sleep(time.Millisecond * 200)
@@ -334,12 +334,6 @@ func TestFullCompaction(t *testing.T) {
 
 	if db.GetTableSize() != 1 {
 		t.Errorf("there are more than one sstables after compaction")
-	}
-
-	for _, key := range keys {
-		if _, ok := db.Get(key); !ok {
-			t.Errorf("could not get key: %s", key)
-		}
 	}
 }
 
