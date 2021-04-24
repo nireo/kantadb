@@ -1,6 +1,7 @@
 package kantadb_test
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -14,6 +15,7 @@ import (
 	"github.com/nireo/kantadb"
 )
 
+// create a database instance and remove the database stuff after running.
 func createTestDatabase(t *testing.T) *kantadb.DB {
 	t.Helper()
 	db := kantadb.New(kantadb.DefaultConfiguration())
@@ -28,6 +30,31 @@ func createTestDatabase(t *testing.T) *kantadb.DB {
 	})
 
 	return db
+}
+
+func writeNValues(db *kantadb.DB, N int) {
+	rand.Seed(time.Now().UnixNano())
+
+	for i := 0; i < 10000; i++ {
+		randomNumber := rand.Int()
+		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
+	}
+}
+
+func writeNAndStore(db *kantadb.DB, N int) []string {
+	rand.Seed(time.Now().UnixNano())
+
+	stored := []string{}
+	for i := 0; i < 10000; i++ {
+		randomNumber := rand.Int()
+
+		asString := strconv.Itoa(randomNumber)
+
+		stored = append(stored, asString)
+		db.Put(asString, "value-"+strconv.Itoa(randomNumber))
+	}
+
+	return stored
 }
 
 func TestFolderCreated(t *testing.T) {
@@ -70,18 +97,7 @@ func TestAllGets(t *testing.T) {
 
 	// since the max value is 128
 	rand.Seed(time.Now().UnixNano())
-
-	stored := []string{}
-	for i := 0; i < 10000; i++ {
-		randomNumber := rand.Int()
-		// store some random numbers and make sure we can find them
-		if randomNumber%5 == 0 {
-			stored = append(stored, strconv.Itoa(randomNumber))
-		}
-
-		// write this value into the database
-		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
-	}
+	stored := writeNAndStore(db, 1000)
 
 	// regardless of which process the key-value pair is in i.e. in-memory, queue or sstable,
 	// we should be able to find the value
@@ -94,13 +110,7 @@ func TestAllGets(t *testing.T) {
 
 func TestSSTableCreation(t *testing.T) {
 	db := createTestDatabase(t)
-
-	rand.Seed(time.Now().UnixNano())
-
-	for i := 0; i < 4000; i++ {
-		randomNumber := rand.Int()
-		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
-	}
+	writeNValues(db, 4000)
 
 	// wait for all of the sstables to go through to disk
 	time.Sleep(time.Millisecond * 200)
@@ -118,20 +128,7 @@ func TestSSTableCreation(t *testing.T) {
 
 func TestPersistance(t *testing.T) {
 	db1 := createTestDatabase(t)
-
-	rand.Seed(time.Now().UnixNano())
-
-	stored := []string{}
-	for i := 0; i < 2000; i++ {
-		randomNumber := rand.Int()
-		// store some random numbers and make sure we can find them
-		if randomNumber%7 == 0 {
-			stored = append(stored, strconv.Itoa(randomNumber))
-		}
-
-		// write this value into the database
-		db1.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
-	}
+	stored := writeNAndStore(db1, 2000)
 
 	if err := db1.Stop(); err != nil {
 		t.Errorf("could not stop running the database")
@@ -156,16 +153,7 @@ func TestPersistance(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	db := createTestDatabase(t)
-
-	// create keys
-	stored := []string{}
-	for i := 0; i < 2000; i++ {
-		randomNumber := rand.Int()
-		if randomNumber%7 == 0 {
-			stored = append(stored, strconv.Itoa(randomNumber))
-		}
-		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
-	}
+	stored := writeNAndStore(db, 2000)
 
 	// delete them
 	for _, key := range stored {
@@ -254,13 +242,7 @@ func TestLogFileRecovery(t *testing.T) {
 
 func TestFilterFileCreation(t *testing.T) {
 	db := createTestDatabase(t)
-
-	rand.Seed(time.Now().UnixNano())
-
-	for i := 0; i < 1e5; i++ {
-		randomNumber := rand.Int()
-		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
-	}
+	writeNValues(db, 1e5)
 
 	// wait for all of the sstables to go through to disk
 	time.Sleep(time.Millisecond * 200)
@@ -287,13 +269,7 @@ func TestFilterFileCreation(t *testing.T) {
 
 func TestEverySSTableHasFilter(t *testing.T) {
 	db := createTestDatabase(t)
-
-	rand.Seed(time.Now().UnixNano())
-
-	for i := 0; i < 1e5; i++ {
-		randomNumber := rand.Int()
-		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
-	}
+	writeNValues(db, 1e5)
 
 	// wait for all of the sstables to go through to disk
 	time.Sleep(time.Millisecond * 200)
@@ -328,20 +304,7 @@ func TestEverySSTableHasFilter(t *testing.T) {
 
 func TestFullCompaction(t *testing.T) {
 	db := createTestDatabase(t)
-
-	rand.Seed(time.Now().UnixNano())
-
-	keys := []string{}
-	for i := 0; i < 8000; i++ {
-		randomNumber := rand.Int()
-
-		key := strconv.Itoa(randomNumber)
-		db.Put(key, "value-"+strconv.Itoa(randomNumber))
-
-		if randomNumber%7 == 0 {
-			keys = append(keys, key)
-		}
-	}
+	keys := writeNAndStore(db, 8000)
 
 	// wait for all of the sstables to go through to disk
 	time.Sleep(time.Millisecond * 200)
@@ -382,15 +345,7 @@ func TestFullCompaction(t *testing.T) {
 
 func TestPartialCompaction(t *testing.T) {
 	db := createTestDatabase(t)
-
-	rand.Seed(time.Now().UnixNano())
-
-	for i := 0; i < 20000; i++ {
-		randomNumber := rand.Int()
-
-		key := strconv.Itoa(randomNumber)
-		db.Put(key, "value-"+strconv.Itoa(randomNumber))
-	}
+	writeNValues(db, 20000)
 
 	// wait for all of the sstables to go through to disk
 	time.Sleep(time.Millisecond * 200)
@@ -440,5 +395,47 @@ func TestPartialCompaction(t *testing.T) {
 
 	if db.GetTableSize() != ssFileCount-1 {
 		t.Errorf("wrong amount of filters. got=%d want=%d", fltrCount, ssFileCount-1)
+	}
+}
+
+func TestFileMerge(t *testing.T) {
+	db := createTestDatabase(t)
+	db.Run()
+
+	writeNValues(db, 20000)
+
+	// let the sstables write
+	time.Sleep(100 * time.Millisecond)
+
+	compactableFiles := db.GetCompactableFiles()
+
+	fmt.Println(compactableFiles)
+	// compact the to last files
+	filename1 := compactableFiles[len(compactableFiles)-2]
+	filename2 := compactableFiles[len(compactableFiles)-1]
+
+	// the merge function assumes that the first file parameter is the more recent one
+	if err := db.MergeFiles(filename1, filename2); err != nil {
+		t.Errorf("error merging files: %s", err)
+	}
+
+	if _, err := os.Stat(filename2); err == nil {
+		t.Errorf("the oldest file was not deleted after merging")
+	}
+}
+
+func TestGetCompactableFiels(t *testing.T) {
+	db := createTestDatabase(t)
+	db.Run()
+	writeNValues(db, 20000)
+
+	// make sure all the sstables are written to disk
+	time.Sleep(200 * time.Millisecond)
+
+	compactableFiles := db.GetCompactableFiles()
+
+	if len(compactableFiles) != db.GetTableSize() {
+		t.Errorf("amount of compactable files does not equal the amount of sstables. compactable=%d file_count=%d",
+			len(compactableFiles), db.GetTableSize())
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/emirpasic/gods/trees/redblacktree"
 	"github.com/nireo/kantadb/entries"
 	"github.com/nireo/kantadb/mem"
 	"github.com/nireo/kantadb/sstable"
@@ -505,17 +506,23 @@ func (db *DB) CompactNTables(n int) error {
 func (db *DB) MergeFiles(f1, f2 string) error {
 	// no write or anything on the files for a little while
 	ssMutex.Lock()
-	if _, err := utils.CopyFile(f1, f1+".tmp"); err != nil {
+	ff1 := filepath.Join(db.ssdir, f1)
+	if _, err := utils.CopyFile(ff1, ff1+".tmp"); err != nil {
+		ssMutex.Unlock()
 		return fmt.Errorf("could not copy file into into temp file: %s", err)
 	}
 
-	if _, err := utils.CopyFile(f2, f2+".tmp"); err != nil {
+	ff2 := filepath.Join(db.ssdir, f2)
+	if _, err := utils.CopyFile(ff2, ff2+".tmp"); err != nil {
+		ssMutex.Unlock()
 		return fmt.Errorf("could not copy file into into temp file: %s", err)
 	}
 	ssMutex.Unlock()
 
-	values := make(map[string]string)
-	filesToMerge := []string{f1 + ".tmp", f2 + ".tmp"}
+	utils.PrintDebug("created temporary merge files at: %s and %s", ff1, ff2)
+
+	values := redblacktree.NewWithStringComparator()
+	filesToMerge := []string{ff1 + ".tmp", ff2 + ".tmp"}
 
 	filter := bloom.New(20000, 5)
 	for _, filename := range filesToMerge {
@@ -534,47 +541,87 @@ func (db *DB) MergeFiles(f1, f2 string) error {
 				break
 			}
 
-			values[entry.Key] = entry.Value
+			values.Put(entry.Key, entry.Value)
 		}
 	}
+	utils.PrintDebug("merged temporary file values")
 
 	// assuming that the f1 is the more recent file.
-	file, err := os.Create(f1 + ".tmpf")
+	file, err := os.Create(ff1 + ".tmpf")
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	for key, value := range values {
-		// if the most updated value for given key is equal to a tombstone block
-		// meaning the key has been deleted. So don't include it.
-		if value == entries.TombstoneValue {
+	utils.PrintDebug("created the final merge file")
+
+	// the tree iterates through the keys in a sorted fashion
+	iter := values.Iterator()
+	for iter.Next() {
+		key := iter.Key().(string)
+		val := iter.Value().(string)
+
+		if val == entries.TombstoneValue {
+			// we want to remove tombstone values in the compaction process
 			continue
 		}
 
 		entry := &entries.Entry{
 			Key:   key,
-			Value: value,
+			Value: val,
 		}
 
 		filter.Add([]byte(key))
 		file.Write(entry.ToBinary())
 	}
 
-	ssMutex.Lock()
-	toDelete := []string{f1, f2, f1 + ".tmp", f2 + ".tmp"}
+	utils.PrintDebug("wrote merged values to file and constructed the bloom filter")
+
+	// deleting all the unneeded files
+	toDelete := []string{ff1, ff2, ff1 + ".tmp", ff2 + ".tmp"}
 	for _, toDel := range toDelete {
 		if err := os.Remove(toDel); err != nil {
+			utils.PrintDebug("could not delete file: %s", toDel)
 			return err
 		}
+		utils.PrintDebug("removed file: %s", toDel)
 	}
 
 	if err := os.Rename(file.Name(), strings.Replace(file.Name(), ".tmpf", "", -1)); err != nil {
+		utils.PrintDebug("could not rename the result file: %s", err)
 		return err
 	}
-	ssMutex.Unlock()
+
+	utils.PrintDebug("renamde file final file")
+
+	utils.PrintDebug("current there are %d sstables", len(db.SSTables))
+	deletedFileIndex := db.GetSSTableIndex(ff2)
+	replacedFileIndex := db.GetSSTableIndex(ff1)
+
+	utils.PrintDebug("deleting sstable at index: %d; replacing at index: %d", deletedFileIndex, replacedFileIndex)
+
+	db.SSTables[replacedFileIndex] = &sstable.SSTable{
+		Filename:    ff1,
+		BloomFilter: filter,
+	}
+	utils.PrintDebug("replaced sstable")
+
+	copy(db.SSTables[deletedFileIndex:], db.SSTables[deletedFileIndex+1:])
+	db.SSTables[len(db.SSTables)-1] = nil
+	db.SSTables = db.SSTables[:len(db.SSTables)-1]
+	utils.PrintDebug("removed sstable")
 
 	return nil
+}
+
+func (db *DB) GetSSTableIndex(filename string) int {
+	for i := 0; i < len(db.SSTables); i++ {
+		if db.SSTables[i].Filename == filename {
+			return i
+		}
+	}
+
+	return -1
 }
 
 // GetCompactableFiles returns all of the files in the SSTable directory that are small enough.
@@ -591,9 +638,13 @@ func (db *DB) GetCompactableFiles() []string {
 		if file.IsDir() || file.Size() > MaxSSTableSize || !strings.HasSuffix(file.Name(), ".ss") {
 			continue
 		}
-
 		res = append(res, file.Name())
 	}
+
+	// make sure the files are sorted in order such that the oldest files are in the back
+	sort.Slice(res, func(i, j int) bool {
+		return res[i] > res[j]
+	})
 
 	return res
 }
