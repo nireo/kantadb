@@ -93,6 +93,7 @@ func CreateTableFromLog(logFilePath string) (*MEM, error) {
 	table := &MEM{
 		tree:        redblacktree.NewWithStringComparator(),
 		logFilePath: logFilePath,
+		size:        0,
 	}
 
 	entryScanner := entries.InitScanner(file, 4096)
@@ -104,9 +105,8 @@ func CreateTableFromLog(logFilePath string) (*MEM, error) {
 		}
 
 		table.tree.Put(entry.Key, entry.Value)
+		table.size += int64(9 + len(entry.Key) + len(entry.Value))
 	}
-
-	utils.PrintDebug("created a table from log file of size: %d", table.Size())
 
 	// now that the log file is useless we can just delete it, since the table is going into
 	// the memory table queue.

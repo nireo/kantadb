@@ -92,21 +92,15 @@ func (db *DB) GetDirectory() string {
 // Run starts the db service and starts checking for queue and other things
 func (db *DB) Run() error {
 	utils.PrintDebug("starting the database service...")
-
 	db.Alive = true
-
 	utils.PrintDebug("starting to parse sstables...")
-	// parse the starting directory for table files containing sstables
-	if err := db.parseSSTableDirectory(); err != nil {
-		return fmt.Errorf("could not parse sstables or create directory for them: %s", err)
+
+	// parse all the files related to keeping persistance
+	if err := db.parsePersistanceFiles(); err != nil {
+		return fmt.Errorf("could not parse directory")
 	}
 
-	// parse for ss directory for log files
-	if err := db.parseLogFiles(); err != nil {
-		return fmt.Errorf("could not parse log directory or create directory for them: %s", err)
-	}
-
-	// Create a temporary directory for the compaction process
+	// // Create a temporary directory for the compaction process
 	utils.CreateDirectory(filepath.Join(db.ssdir, "tmp"))
 
 	// we can create a new instance of a memory table since the file directory has been created for sure
@@ -278,14 +272,29 @@ func (db *DB) handleQueue() {
 	}
 }
 
-// parseLogFiles goes through the log directory and creates memory tables for each log.
-// We parse the log files since, if the database unexpectedly shuts down we can recover
-// the data.
-func (db *DB) parseLogFiles() error {
-	fileNames := utils.ListFilesWithSuffix(db.ssdir, ".lg")
+// parsePersistanceFiles takes in the database directory and parses the log files and the
+// sstables and indexes the data in them. The memtables from queues are placed directly to
+// disk.
+func (db *DB) parsePersistanceFiles() error {
+	sstableFiles := utils.ListFilesWithSuffix(db.ssdir, ".ss")
+	sort.Strings(sstableFiles)
 
-	// we want create memtables and append them to the queue
-	for _, path := range fileNames {
+	logFiles := utils.ListFilesWithSuffix(db.ssdir, ".lg")
+	sort.Strings(logFiles)
+
+	var sstlbs []*sstable.SSTable
+	for _, path := range sstableFiles {
+		sst := sstable.NewSSTable(path)
+
+		// check if that sstable had a filter file
+		if err := sst.ParseFilterFromDirectory(); err != nil {
+			utils.PrintDebug("could not parse filter file: %s", err)
+		}
+
+		sstlbs = append([]*sstable.SSTable{sst}, sstlbs...)
+	}
+
+	for _, path := range logFiles {
 		table, err := mem.CreateTableFromLog(path)
 		if err != nil {
 			return err
@@ -297,36 +306,8 @@ func (db *DB) parseLogFiles() error {
 		queueMutex.Unlock()
 	}
 
-	// this will be ran before starting the queue flusher such that queue can instantly
-	// clear queue and convert these tables into sstables.
-
-	return nil
-}
-
-// parseSSTableDirectory finds all of the sstable files and adds them to the list.
-func (db *DB) parseSSTableDirectory() error {
-	fileNames := utils.ListFilesWithSuffix(db.ssdir, ".ss")
-	sort.Strings(fileNames)
-
-	var sstlbs []*sstable.SSTable
-	for _, path := range fileNames {
-		sst := sstable.NewSSTable(path)
-
-		// check if that sstable had a filter file
-		if err := sst.ParseFilterFromDirectory(); err != nil {
-			utils.PrintDebug("could not parse filter file: %s", err)
-		}
-
-		sstlbs = append([]*sstable.SSTable{sst}, sstlbs...)
-	}
-
-	utils.PrintDebug("found %d sstables", len(sstlbs))
-
-	// no need to use mutex since this code isn't ran concurrently
 	db.SSTables = sstlbs
 
-	// all of the tables are parsed now we need to create some kind of
-	// sparsing index for all of the sstables, but that will come later.
 	return nil
 }
 
