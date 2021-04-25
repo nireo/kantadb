@@ -25,6 +25,19 @@ type EntryScanner struct {
 	*bufio.Scanner
 }
 
+// KeyValueToBytes makes it so we don't need to convert key-value pairs into entries
+// before writing them to bytes. This just skips a step and makes some of the code more
+// elegant.
+func KeyValueToBytes(key, value string) []byte {
+	data := make([]byte, 1)
+	data = append(data, getStringBinaryLength(key)...)
+	data = append(data, getStringBinaryLength(value)...)
+	data = append(data, []byte(key)...)
+	data = append(data, []byte(value)...)
+
+	return data
+}
+
 // EntryFromBytes takes in a some byte data and tries to encode a database entry from that data.
 // The byte encoding is as followed: each entry is seperated by a 0-byte; then the following 8
 // bytes contain the lengths of the key and value. Then the following entries are of the specified
@@ -43,23 +56,24 @@ func EntryFromBytes(bytes []byte) (*Entry, error) {
 		return nil, errors.New("the key and value lengths are invalid")
 	}
 
-	entry := &Entry{
+	return &Entry{
 		Key:   string(bytes[9 : 9+klen]),
 		Value: string(bytes[9+klen : 9+klen+vlen]),
-	}
-	return entry, nil
+	}, nil
+}
+
+func getStringBinaryLength(str string) []byte {
+	buffer := make([]byte, 4)
+	binary.BigEndian.PutUint32(buffer, uint32(len([]byte(str))))
+
+	return buffer
 }
 
 // ToBinary converts the keys into the binary representation in bytes
 func (e *Entry) ToBinary() []byte {
-	klenBuffer := make([]byte, 4)
-	vlenBuffer := make([]byte, 4)
-	binary.BigEndian.PutUint32(klenBuffer, uint32(len([]byte(e.Key))))
-	binary.BigEndian.PutUint32(vlenBuffer, uint32(len([]byte(e.Value))))
-
 	data := make([]byte, 1)
-	data = append(data, klenBuffer...)
-	data = append(data, vlenBuffer...)
+	data = append(data, getStringBinaryLength(e.Key)...)
+	data = append(data, getStringBinaryLength(e.Value)...)
 	data = append(data, []byte(e.Key)...)
 	data = append(data, []byte(e.Value)...)
 

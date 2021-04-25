@@ -17,7 +17,6 @@ import (
 // new methods if needed.
 
 var logPath string
-
 var logFileWriteMutex = &sync.Mutex{}
 
 // MEM represents the in-memory data

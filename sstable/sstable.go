@@ -24,7 +24,7 @@ type SSTable struct {
 func NewSSTable(name string) *SSTable {
 	return &SSTable{
 		Filename:    name,
-		BloomFilter: bloom.New(20000, 5),
+		BloomFilter: bloom.New(10000, 5),
 	}
 }
 
@@ -51,7 +51,6 @@ func (ss *SSTable) Get(key string) (string, bool) {
 
 	// create a entry reader to read all values from the files
 	entryScanner := entries.InitScanner(file, 4096)
-
 	for {
 		entry, err := entryScanner.ReadNext()
 		if err != nil {
@@ -112,13 +111,11 @@ func (ss *SSTable) WriteFilterToDisk() error {
 	if err != nil {
 		return err
 	}
-
 	defer file.Close()
 
 	if _, err := ss.BloomFilter.WriteTo(file); err != nil {
 		return err
 	}
-
 	utils.PrintDebug("created a new filter file at: %s", ss.GetFilterFilename())
 
 	return nil

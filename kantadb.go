@@ -109,7 +109,6 @@ func (db *DB) Run() error {
 	// start checking for in-memory tables in the queue and start converting in-memory
 	// tables into sstables.
 	go db.handleQueue()
-	go db.runCompactionProcess()
 
 	return nil
 }
@@ -244,8 +243,7 @@ func (db *DB) handleQueue() {
 			}
 			defer file.Close()
 
-			entrs := db.MEMQueue[i].ConvertIntoEntries()
-			for _, e := range entrs {
+			for _, e := range db.MEMQueue[i].ConvertIntoEntries() {
 				// a bloom filter is just a optimization to that helps finding out
 				// if a value has already been seen.
 				sst.BloomFilter.Add([]byte(e.Key))
@@ -416,13 +414,8 @@ func (db *DB) CompactNTables(n int) error {
 			continue
 		}
 
-		entry := &entries.Entry{
-			Key:   key,
-			Value: value,
-		}
-
 		finalSst.BloomFilter.Add([]byte(key))
-		file.Write(entry.ToBinary())
+		file.Write(entries.KeyValueToBytes(key, value))
 	}
 
 	// now that each value has surely been stored we can remove the older files
@@ -549,13 +542,8 @@ func (db *DB) MergeFiles(f1, f2 string) error {
 			continue
 		}
 
-		entry := &entries.Entry{
-			Key:   key,
-			Value: val,
-		}
-
 		filter.Add([]byte(key))
-		file.Write(entry.ToBinary())
+		file.Write(entries.KeyValueToBytes(key, val))
 	}
 
 	utils.PrintDebug("wrote merged values to file and constructed the bloom filter")
@@ -636,18 +624,6 @@ func (db *DB) GetCompactableFiles() []string {
 	return res
 }
 
-// runCompactionProcess periodically compacts data from the sstable list.
-func (db *DB) runCompactionProcess() {
-	for db.Alive {
-		if len(db.SSTables) < 2 {
-			time.Sleep(time.Second)
-			continue
-		}
-
-		time.Sleep(time.Second)
-	}
-}
-
 // Stop clears the data gracefully from the memtables are sstable write queue
 func (db *DB) Stop() error {
 	// if we're closing don't accept new queue entries
@@ -670,7 +646,7 @@ func (db *DB) Stop() error {
 		}
 		defer file.Close()
 
-		entrs := db.MEMQueue[0].ConvertIntoEntries()
+		entrs := db.MEMQueue[i].ConvertIntoEntries()
 		for _, e := range entrs {
 			file.Write(e.ToBinary())
 		}
