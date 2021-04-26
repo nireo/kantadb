@@ -264,12 +264,15 @@ func (db *DB) handleQueue() {
 			// now just append the newest sstable to the beginning of the queue
 			db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
 
+			if err := db.MEMQueue[i].Remove(); err != nil {
+				utils.PrintDebug("could not truncanate the memtable: %s", err)
+			}
+
 			ssListMutex.Unlock()
 		}
 
 		// clean up the queue since we went through each item
 		db.MEMQueue = []*mem.MEM{}
-
 		queueMutex.Unlock()
 		time.Sleep(time.Millisecond * 100)
 	}

@@ -439,3 +439,30 @@ func TestGetCompactableFiels(t *testing.T) {
 			len(compactableFiles), db.GetTableSize())
 	}
 }
+
+func TestLogFilesRemoved(t *testing.T) {
+	db := createTestDatabase(t)
+	db.Run()
+
+	writeNValues(db, 10000)
+
+	// wait until all the log files are deleted.
+	time.Sleep(time.Millisecond * 100)
+
+	files, err := ioutil.ReadDir(db.GetDirectory())
+	if err != nil {
+		t.Fatalf("could not read directory: %s", err)
+	}
+
+	logFileCount := 0
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".lg") {
+			logFileCount++
+		}
+	}
+
+	// the current memtable should have the log file, such that the count is 1
+	if logFileCount != 1 {
+		t.Errorf("wrong amount of log files. got=%d want=%d", logFileCount, 1)
+	}
+}

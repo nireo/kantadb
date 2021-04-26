@@ -24,6 +24,7 @@ type MEM struct {
 	size        int64
 	tree        *redblacktree.Tree
 	logFilePath string
+	logFile     *os.File
 }
 
 // SetLogPath sets the folder in which all of the log are to be stored.
@@ -77,11 +78,27 @@ func New() *MEM {
 	defer file.Close()
 
 	utils.PrintDebug("created a log file at: %s", filePath)
-	return &MEM{
+	mem := &MEM{
 		tree:        redblacktree.NewWithStringComparator(),
 		logFilePath: filePath,
 		size:        0,
 	}
+
+	mem.PopulateLogFile()
+	return mem
+}
+
+// PopulateLogFile opens/creates the log file, and it handles settings the
+// logFile file-pointer to the file with the logFilePath
+func (m *MEM) PopulateLogFile() error {
+	f, err := os.OpenFile(m.logFilePath, os.O_APPEND|os.O_WRONLY, 0660)
+	if err != nil {
+		f.Close()
+		return err
+	}
+	m.logFile = f
+
+	return nil
 }
 
 // CreateTableFromLog constructs a memory table from the contents of a log file.
@@ -148,6 +165,21 @@ func (m *MEM) WriteToLog(key, val string) error {
 		return err
 	}
 	logFileWriteMutex.Unlock()
+	return nil
+}
+
+// Remove removes the log file after the memtable is written into persistent
+// storage.
+func (m *MEM) Remove() error {
+	err := m.logFile.Close()
+	if err != nil {
+		return err
+	}
+
+	if err := os.Remove(m.logFilePath); err != nil {
+		return err
+	}
+
 	return nil
 }
 
