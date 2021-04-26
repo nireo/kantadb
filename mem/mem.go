@@ -128,8 +128,6 @@ func (m *MEM) ConvertIntoEntries() []*entries.Entry {
 		})
 	}
 
-	// no need to sort them since they're already sorted
-
 	return entrs
 }
 
@@ -143,7 +141,6 @@ func (m *MEM) WriteToLog(key, val string) {
 	}
 
 	entry.AppendToFile(m.logFilePath)
-
 	logFileWriteMutex.Unlock()
 }
 

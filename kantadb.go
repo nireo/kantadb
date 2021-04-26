@@ -38,6 +38,9 @@ type DB struct {
 	maxMEMsize int
 	ssdir      string
 	MEMQueue   []*mem.MEM
+
+	writeChan chan *entries.Entry
+	flushChan chan *mem.MEM
 }
 
 // ssTableSearch represents a value from the sstables, where the index is the index of sstable.
@@ -81,6 +84,7 @@ func New(config *Config) *DB {
 		SSTables:   make([]*sstable.SSTable, 0),
 		ssdir:      conf.StorageDir,
 		maxMEMsize: conf.MaxMemSize,
+		writeChan:  make(chan *entries.Entry),
 	}
 }
 
@@ -109,6 +113,7 @@ func (db *DB) Run() error {
 	// start checking for in-memory tables in the queue and start converting in-memory
 	// tables into sstables.
 	go db.handleQueue()
+	go db.handleWrites()
 
 	return nil
 }
@@ -156,32 +161,38 @@ func (db *DB) Get(key string) (string, bool) {
 // in the in-memory table exceeds the amount specified in the database configuation.
 // If the number is exceeded, add the in-memory table to the start of the queue.
 func (db *DB) Put(key, val string) {
-	memMutex.Lock()
-	size := db.MEM.Size()
-	memMutex.Unlock()
+	db.writeChan <- &entries.Entry{
+		Key:   key,
+		Value: val,
+	}
+}
 
-	if size > MaxMemSize {
-		utils.PrintDebug("a new memtable is being placed into queue, size: %s", utils.HumanByteCount(int64(size)))
+// handleWrites values from the write channel and inserts them into the database,
+// it is used in putting values and deleting them.
+func (db *DB) handleWrites() {
+	for {
+		entry := <-db.writeChan
+		memMutex.Lock()
+		size := db.MEM.Size()
+		memMutex.Unlock()
+		if size > MaxMemSize {
+			queueMutex.Lock()
 
-		queueMutex.Lock()
+			// add the new in-memory table to the beginning of the list, such that we
+			// can easily go through the latest elements when querying and also write older
+			// tables to disk
+			db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
+			queueMutex.Unlock()
 
-		// add the new in-memory table to the beginning of the list, such that we
-		// can easily go through the latest elements when querying and also write older
-		// tables to disk
-		db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
-		utils.PrintDebug("reset the memory table, length of queue: %d", len(db.MEMQueue))
-
-		queueMutex.Unlock()
+			memMutex.Lock()
+			db.MEM = mem.New()
+			memMutex.Unlock()
+		}
 
 		memMutex.Lock()
-		db.MEM = mem.New()
+		db.MEM.Put(entry.Key, entry.Value)
 		memMutex.Unlock()
 	}
-
-	// Write key into the plain in-memory table.
-	memMutex.Lock()
-	db.MEM.Put(key, val)
-	memMutex.Unlock()
 }
 
 // Delete has almost exactly the same functionality as read, but instead we set the value of the
@@ -189,30 +200,10 @@ func (db *DB) Put(key, val string) {
 // We cannot remove the key from the in-memory table since it might reside in the queue or sstable.
 // The key will be ultimately deleted when sstable compaction happens.
 func (db *DB) Delete(key string) {
-	memMutex.Lock()
-	size := db.MEM.Size()
-	memMutex.Unlock()
-
-	if size > MaxMemSize {
-		queueMutex.Lock()
-
-		// add the new in-memory table to the beginning of the list, such that we
-		// can easily go through the latest elements when querying and also write older
-		// tables to disk
-		db.MEMQueue = append([]*mem.MEM{db.MEM}, db.MEMQueue...)
-		utils.PrintDebug("reset the memory table, length of queue: %d", len(db.MEMQueue))
-
-		queueMutex.Unlock()
-
-		memMutex.Lock()
-		db.MEM = mem.New()
-		memMutex.Unlock()
+	db.writeChan <- &entries.Entry{
+		Key:   key,
+		Value: entries.TombstoneValue,
 	}
-
-	// Write key into the plain in-memory table.
-	memMutex.Lock()
-	db.MEM.Put(key, entries.TombstoneValue)
-	memMutex.Unlock()
 }
 
 // HandleQueue takes care of emptying the queue and writing the queue into
@@ -589,6 +580,7 @@ func (db *DB) MergeFiles(f1, f2 string) error {
 	return nil
 }
 
+// GetSSTableIndex returns the index of the sstable with a given filename
 func (db *DB) GetSSTableIndex(filename string) int {
 	for i := 0; i < len(db.SSTables); i++ {
 		if db.SSTables[i].Filename == filename {

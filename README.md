@@ -18,31 +18,31 @@ Then the basic usage is:
 package main
 
 import  (
-    "log"
+	"log"
 
-    "github.com/nireo/kantadb"
+	"github.com/nireo/kantadb"
 )
 
 
 func main() {
-    db := kantadb.New(kantadb.DefaultConfiguration())
-    defer db.Stop()
+	db := kantadb.New(kantadb.DefaultConfiguration())
+	defer db.Stop()
 
-    db.Run()
+	db.Run()
 
-    // put a value
-    db.Put("hello", "world")
+	// put a value
+	db.Put("hello", "world")
 
-    // get the value
-    value, ok := db.Get("hello")
-    if !ok {
-        log.Println("value has not been found")
-    }
+	// get the value
+	value, ok := db.Get("hello")
+	if !ok {
+		log.Println("value has not been found")
+	}
 
-    log.Printf("got value %s", value)
+	log.Printf("got value %s", value)
 
-    // delete the value
-    db.Delete("hello")
+	// delete the value
+	db.Delete("hello")
 }
 ```
 
@@ -51,3 +51,10 @@ func main() {
 Firstly there is a simple in-memory table, which has a certain max capacity. Once that capacity gets filled, the in-memory table is placed in to a queue, in which it will be written to disk. The queue is checked every 25-100 milliseconds and then if that queue is not empty, tables from the queue are written to disk as sstables.
 
 The combination of in-memory table log files and the sstables makes persistence possible. All the log files and sstables are checked when the database is started up again. Log files are used to make sure in-memory data doesn't get lost if the database suddenly shuts down.
+
+## Todo
+
+	- Add transactions
+	- Stop using mutexes and start using channels for concurrency
+	- Add levels
+	- Improve the compaction process
