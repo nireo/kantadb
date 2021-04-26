@@ -37,7 +37,9 @@ func writeNValues(db *kantadb.DB, N int) {
 
 	for i := 0; i < 10000; i++ {
 		randomNumber := rand.Int()
-		db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber))
+		if err := db.Put(strconv.Itoa(randomNumber), "value-"+strconv.Itoa(randomNumber)); err != nil {
+			fmt.Println("could not write value: ", err)
+		}
 	}
 }
 
@@ -51,7 +53,9 @@ func writeNAndStore(db *kantadb.DB, N int) []string {
 		asString := strconv.Itoa(randomNumber)
 
 		stored = append(stored, asString)
-		db.Put(asString, "value-"+strconv.Itoa(randomNumber))
+		if err := db.Put(asString, "value-"+strconv.Itoa(randomNumber)); err != nil {
+			fmt.Println("could not write value: ", err)
+		}
 	}
 
 	return stored
@@ -69,7 +73,9 @@ func TestBasicMemoryOperations(t *testing.T) {
 	db := createTestDatabase(t)
 	keys := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
 	for _, key := range keys {
-		db.Put(key, "value-"+key)
+		if err := db.Put(key, "value-"+key); err != nil {
+			t.Errorf("could not write value: %s", key)
+		}
 	}
 
 	// test getting values

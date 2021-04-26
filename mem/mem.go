@@ -33,11 +33,15 @@ func SetLogPath(path string) {
 }
 
 // Put adds a value to the data
-func (m *MEM) Put(key, val string) {
-	m.WriteToLog(key, val)
+func (m *MEM) Put(key, val string) error {
+	if err := m.WriteToLog(key, val); err != nil {
+		return err
+	}
 
 	m.tree.Put(key, val)
 	m.addToSize(key, val)
+
+	return nil
 }
 
 func (m *MEM) addToSize(key, val string) {
@@ -132,7 +136,7 @@ func (m *MEM) ConvertIntoEntries() []*entries.Entry {
 }
 
 // WriteToLog appends a key-value pair into the log
-func (m *MEM) WriteToLog(key, val string) {
+func (m *MEM) WriteToLog(key, val string) error {
 	logFileWriteMutex.Lock()
 
 	entry := entries.Entry{
@@ -140,8 +144,11 @@ func (m *MEM) WriteToLog(key, val string) {
 		Value: val,
 	}
 
-	entry.AppendToFile(m.logFilePath)
+	if err := entry.AppendToFile(m.logFilePath); err != nil {
+		return err
+	}
 	logFileWriteMutex.Unlock()
+	return nil
 }
 
 // DeleteLogFile deletes the log file after all of the values have been stored into an sstable
