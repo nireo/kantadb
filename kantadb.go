@@ -19,7 +19,8 @@ import (
 	"github.com/willf/bloom"
 )
 
-const MaxMemSize int64 = 1 << 18
+// 256 kb
+const MaxMemSize int64 = 1024 * 256
 
 // 24 mb
 const MaxSSTableSize int64 = 1024 * 1014 * 24
