@@ -35,7 +35,7 @@ func SetLogPath(path string) {
 
 // Put adds a value to the data
 func (m *MEM) Put(key, val string) error {
-	if err := m.WriteToLog(key, val); err != nil {
+	if err := m.AppendToLog(key, val); err != nil {
 		return err
 	}
 
@@ -152,25 +152,25 @@ func (m *MEM) ConvertIntoEntries() []*entries.Entry {
 	return entrs
 }
 
-// WriteToLog appends a key-value pair into the log
-func (m *MEM) WriteToLog(key, val string) error {
+// AppendToLog takes in a key-value pair and appends that to the file pointer.
+func (m *MEM) AppendToLog(key, value string) error {
 	logFileWriteMutex.Lock()
+	defer logFileWriteMutex.Unlock()
 
-	entry := entries.Entry{
-		Key:   key,
-		Value: val,
-	}
-
-	if err := entry.AppendToFile(m.logFilePath); err != nil {
+	toWrite := entries.KeyValueToBytes(key, value)
+	_, err := m.logFile.Write(toWrite)
+	if err != nil {
 		return err
 	}
-	logFileWriteMutex.Unlock()
+
 	return nil
 }
 
 // Remove removes the log file after the memtable is written into persistent
 // storage.
 func (m *MEM) Remove() error {
+	logFileWriteMutex.Lock()
+	defer logFileWriteMutex.Unlock()
 	err := m.logFile.Close()
 	if err != nil {
 		return err
