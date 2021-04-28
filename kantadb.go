@@ -232,33 +232,13 @@ func (db *DB) handleQueue() {
 		// newest items. So we want to add priority to older tables.
 
 		for i := len(db.MEMQueue) - 1; i >= 0; i-- {
-			timestamp := time.Now().UnixNano()
-
 			ssListMutex.Lock()
-
-			filePath := filepath.Join(db.ssdir, fmt.Sprintf("%v.ss", timestamp))
-			sst := sstable.NewSSTable(filePath)
-
-			// create the new file
-			file, err := os.Create(sst.Filename)
+			sst, err := sstable.ConstructFromMemtable(db.ssdir, db.MEMQueue[i])
 			if err != nil {
-				// error happened skip this and try again on the next iteration
-				utils.PrintDebug("error creating sstable: %s", err)
 				ssListMutex.Unlock()
+				utils.PrintDebug("could not create sstable: %s", err)
 				continue
 			}
-			defer file.Close()
-
-			for _, e := range db.MEMQueue[i].ConvertIntoEntries() {
-				// a bloom filter is just a optimization to that helps finding out
-				// if a value has already been seen.
-				sst.BloomFilter.Add([]byte(e.Key))
-				file.Write(e.ToBinary())
-			}
-
-			// after constructing the bloom filter in the previous loop we can just
-			// write the bloom filter into a filter file.
-			sst.WriteFilterToDisk()
 
 			utils.PrintDebug("created a new sstable at: %s", sst.Filename)
 
