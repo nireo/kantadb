@@ -92,6 +92,7 @@ func New(config *Config) *DB {
 		ssdir:      conf.StorageDir,
 		maxMEMsize: conf.MaxMemSize,
 		writeChan:  make(chan *WRequest),
+		flushChan:  make(chan *mem.MEM),
 	}
 }
 
@@ -203,6 +204,20 @@ func (db *DB) handleWrites() {
 
 			entry.errChan <- nil
 		}
+	}
+}
+
+func (db *DB) handleFlushQueue() {
+	for {
+		toFlush := <-db.flushChan
+		sst, err := sstable.ConstructFromMemtable(db.ssdir, toFlush)
+		if err != nil {
+			utils.PrintDebug("could not flush table")
+		}
+
+		ssMutex.Lock()
+		db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
+		ssMutex.Unlock()
 	}
 }
 

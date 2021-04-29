@@ -80,8 +80,13 @@ func TestBasicMemoryOperations(t *testing.T) {
 
 	// test getting values
 	for _, key := range keys {
-		if _, ok := db.Get(key); !ok {
+		value, ok := db.Get(key)
+		if !ok {
 			t.Errorf("could not find key %q in the database", key)
+		}
+
+		if value != "value-"+key {
+			t.Errorf("value is wrong")
 		}
 	}
 
@@ -108,8 +113,13 @@ func TestAllGets(t *testing.T) {
 	// regardless of which process the key-value pair is in i.e. in-memory, queue or sstable,
 	// we should be able to find the value
 	for _, key := range stored {
-		if _, ok := db.Get(key); !ok {
-			t.Errorf("error getting key: %s", key)
+		value, ok := db.Get(key)
+		if !ok {
+			t.Errorf("could not find key %q in the database", key)
+		}
+
+		if value != "value-"+key {
+			t.Errorf("value is wrong")
 		}
 	}
 }
@@ -149,8 +159,13 @@ func TestPersistance(t *testing.T) {
 	db2.Run()
 
 	for _, key := range stored {
-		if _, ok := db2.Get(key); !ok {
-			t.Errorf("error getting key: %s", key)
+		value, ok := db2.Get(key)
+		if !ok {
+			t.Errorf("could not find key %q in the database", key)
+		}
+
+		if value != "value-"+key {
+			t.Errorf("value is wrong")
 		}
 	}
 
@@ -168,8 +183,9 @@ func TestDelete(t *testing.T) {
 
 	// check that they cannot be found
 	for _, key := range stored {
-		if _, ok := db.Get(key); ok {
-			t.Errorf("got key even though deleted: %s", key)
+		_, ok := db.Get(key)
+		if ok {
+			t.Errorf("could find key %q in the database", key)
 		}
 	}
 }

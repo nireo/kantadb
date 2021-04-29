@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/emirpasic/gods/trees/redblacktree"
@@ -27,14 +28,18 @@ type SSTable struct {
 	// mapping the key offsets in the file
 	offsets map[string]int64
 	file    *os.File // the file pointer in whichi we read the entries.
+	// we don't need to store the filter file since it is loaded
+	// into the BloomFilter field.
+	fileSeekMutex *sync.Mutex
 }
 
 // NewSSTable creates a sstable instance with a filename pointing to the sstable.
 func NewSSTable(name string) *SSTable {
 	return &SSTable{
-		Filename:    name,
-		BloomFilter: bloom.New(10000, 5),
-		offsets:     make(map[string]int64),
+		Filename:      name,
+		BloomFilter:   bloom.New(10000, 5),
+		offsets:       make(map[string]int64),
+		fileSeekMutex: &sync.Mutex{},
 	}
 }
 
@@ -68,27 +73,12 @@ func (ss *SSTable) Get(key string) (string, bool) {
 		return "", false
 	}
 
-	// open the file
-	file, err := os.OpenFile(ss.Filename, os.O_RDONLY, 0660)
+	value, err := ss.ReadFromOffset(key)
 	if err != nil {
 		return "", false
 	}
-	defer file.Close()
 
-	// create a entry reader to read all values from the files
-	entryScanner := entries.InitScanner(file, 4096)
-	for {
-		entry, err := entryScanner.ReadNext()
-		if err != nil {
-			break
-		}
-
-		if entry.Key == key {
-			return entry.Key, true
-		}
-	}
-
-	return "", false
+	return value, true
 }
 
 // AppendToFile adds the given entry to the end of a table and adds that to the bloom filter
@@ -112,19 +102,28 @@ func (ss *SSTable) AppendToTable(e *entries.Entry) error {
 // the part of the sstable where the key-value pair is. This of course consumes
 // more memory, but the read performance is better.
 func (ss *SSTable) ReadFromOffset(key string) (string, error) {
-	var value string
 	offset, ok := ss.offsets[key]
 	if !ok {
 		return "", errors.New("key not in offset map")
 	}
-	// remember to set the file position
+
+	// remember to set the file position back to the start after reading
+
+	ss.fileSeekMutex.Lock()
+	defer ss.fileSeekMutex.Unlock()
 	defer ss.file.Seek(0, 0)
 
 	if _, err := ss.file.Seek(offset, 0); err != nil {
 		return "", err
 	}
 
-	return value, nil
+	scanner := entries.InitScanner(ss.file, 4096)
+	entry, err := scanner.ReadNext()
+	if err != nil {
+		return "", err
+	}
+
+	return entry.Value, nil
 }
 
 // GetFilterFilename removes the .ss suffix and returns the same file with the .fltr name.
@@ -164,32 +163,6 @@ func (ss *SSTable) WriteFilterToDisk() error {
 	utils.PrintDebug("created a new filter file at: %s", ss.GetFilterFilename())
 
 	return nil
-}
-
-// fillTree creates a sparse index to speed up look up time.
-func (ss *SSTable) fillTree() {
-	ss.Tree = redblacktree.NewWithStringComparator()
-
-	file, err := os.OpenFile(ss.Filename, os.O_RDONLY, 0660)
-	if err != nil {
-		// do nothing
-		return
-	}
-	defer file.Close()
-
-	offset := int64(0)
-	// create a entry reader to read all values from the files
-	entryScanner := entries.InitScanner(file, 4096)
-
-	for {
-		entry, err := entryScanner.ReadNext()
-		if err != nil {
-			break
-		}
-
-		ss.offsets[entry.Key] = offset
-		offset += int64(len(entry.ToBinary()))
-	}
 }
 
 // ParseSSTableFromFile takes in a file path and parses that file's bloom filter file and
