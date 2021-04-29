@@ -1,6 +1,7 @@
 package sstable
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ type SSTable struct {
 
 	// mapping the key offsets in the file
 	offsets map[string]int64
+	file    *os.File // the file pointer in whichi we read the entries.
 }
 
 // NewSSTable creates a sstable instance with a filename pointing to the sstable.
@@ -36,12 +38,28 @@ func NewSSTable(name string) *SSTable {
 	}
 }
 
+// PopulateReadOnlyFile populates the 'file' field in the sstable for faster access
+func (ss *SSTable) PopulateReadOnlyFile() error {
+	file, err := os.OpenFile(ss.Filename, os.O_RDONLY, 0600)
+	if err != nil {
+		file.Close()
+		return err
+	}
+	ss.file = file
+
+	return nil
+}
+
 // NewSSTableWithFilter returns a sstable with a given filename and filter
 func NewSSTableWithFilter(name string, filter *bloom.BloomFilter) *SSTable {
 	return &SSTable{
 		Filename:    name,
 		BloomFilter: filter,
 	}
+}
+
+func (ss *SSTable) Close() error {
+	return ss.file.Close()
 }
 
 // Get finds a key from the list of sstable files.
@@ -88,6 +106,25 @@ func (ss *SSTable) AppendToTable(e *entries.Entry) error {
 	}
 
 	return nil
+}
+
+// ReadFromOffset is an optimized read function that reads for the offset map
+// the part of the sstable where the key-value pair is. This of course consumes
+// more memory, but the read performance is better.
+func (ss *SSTable) ReadFromOffset(key string) (string, error) {
+	var value string
+	offset, ok := ss.offsets[key]
+	if !ok {
+		return "", errors.New("key not in offset map")
+	}
+	// remember to set the file position
+	defer ss.file.Seek(0, 0)
+
+	if _, err := ss.file.Seek(offset, 0); err != nil {
+		return "", err
+	}
+
+	return value, nil
 }
 
 // GetFilterFilename removes the .ss suffix and returns the same file with the .fltr name.
@@ -153,6 +190,34 @@ func (ss *SSTable) fillTree() {
 		ss.offsets[entry.Key] = offset
 		offset += int64(len(entry.ToBinary()))
 	}
+}
+
+// ParseSSTableFromFile takes in a file path and parses that file's bloom filter file and
+// it also scans all of the entries in the file and then creates the offset map.
+func ParseSSTableFromFile(path string) (*SSTable, error) {
+	sst := NewSSTable(path)
+
+	// load the corresponding filter file
+	if err := sst.ParseFilterFromDirectory(); err != nil {
+		return nil, err
+	}
+	sst.PopulateReadOnlyFile()
+
+	// build the offset index
+	offset := int64(0)
+	entryScanner := entries.InitScanner(sst.file, 4096)
+
+	for {
+		entry, err := entryScanner.ReadNext()
+		if err != nil {
+			break
+		}
+
+		sst.offsets[entry.Key] = offset
+		offset += int64(len(entry.ToBinary()))
+	}
+
+	return sst, nil
 }
 
 // ConstructFromMemtable takes creates a sstable with the corrent offset map from a memory table

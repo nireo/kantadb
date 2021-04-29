@@ -242,6 +242,10 @@ func (db *DB) handleQueue() {
 
 			utils.PrintDebug("created a new sstable at: %s", sst.Filename)
 
+			if err := sst.PopulateReadOnlyFile(); err != nil {
+				utils.PrintDebug("could not populate read only sstable %s", err)
+			}
+
 			// now just append the newest sstable to the beginning of the queue
 			db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
 
@@ -271,11 +275,9 @@ func (db *DB) parsePersistanceFiles() error {
 
 	var sstlbs []*sstable.SSTable
 	for _, path := range sstableFiles {
-		sst := sstable.NewSSTable(path)
-
-		// check if that sstable had a filter file
-		if err := sst.ParseFilterFromDirectory(); err != nil {
-			utils.PrintDebug("could not parse filter file: %s", err)
+		sst, err := sstable.ParseSSTableFromFile(path)
+		if err != nil {
+			utils.PrintDebug("error parsing sstable: %s", err)
 		}
 
 		sstlbs = append([]*sstable.SSTable{sst}, sstlbs...)
@@ -643,6 +645,14 @@ func (db *DB) Stop() error {
 	}
 
 	db.MEMQueue = []*mem.MEM{}
+
+	// close all the connections
+	for _, ss := range db.SSTables {
+		if err := ss.Close(); err != nil {
+			utils.PrintDebug("error closing connection")
+		}
+	}
+
 	ssListMutex.Unlock()
 
 	db.Alive = false
