@@ -33,15 +33,15 @@ var compactionMutex = &sync.Mutex{}
 
 // DB represents the database as a whole.
 type DB struct {
-	Alive      bool
-	MEM        *mem.MEM
-	SSTables   []*sstable.SSTable
-	maxMEMsize int
-	ssdir      string
-	MEMQueue   []*mem.MEM
+	Alive        bool
+	MEM          *mem.MEM
+	SSTables     []*sstable.SSTable
+	maxMEMsize   int
+	ssdir        string
+	MEMQueue     []*mem.MEM
+	maxQueueSize int
 
 	writeChan chan *WRequest
-	flushChan chan *mem.MEM
 }
 
 type WRequest struct {
@@ -87,12 +87,11 @@ func New(config *Config) *DB {
 	utils.SetDebuggingMode(config.Debug)
 
 	return &DB{
-		Alive:      false,
-		SSTables:   make([]*sstable.SSTable, 0),
-		ssdir:      conf.StorageDir,
-		maxMEMsize: conf.MaxMemSize,
-		writeChan:  make(chan *WRequest),
-		flushChan:  make(chan *mem.MEM),
+		Alive:        false,
+		SSTables:     make([]*sstable.SSTable, 0),
+		ssdir:        conf.StorageDir,
+		maxMEMsize:   conf.MaxMemSize,
+		maxQueueSize: 30,
 	}
 }
 
@@ -204,20 +203,6 @@ func (db *DB) handleWrites() {
 
 			entry.errChan <- nil
 		}
-	}
-}
-
-func (db *DB) handleFlushQueue() {
-	for {
-		toFlush := <-db.flushChan
-		sst, err := sstable.ConstructFromMemtable(db.ssdir, toFlush)
-		if err != nil {
-			utils.PrintDebug("could not flush table")
-		}
-
-		ssMutex.Lock()
-		db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
-		ssMutex.Unlock()
 	}
 }
 
