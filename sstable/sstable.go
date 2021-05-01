@@ -226,3 +226,42 @@ func ConstructFromMemtable(directory string, mem *mem.MEM) (*SSTable, error) {
 
 	return sst, nil
 }
+
+// FromTree creates a sstable and fills the offsets from a tree
+func FromTree(directory string, tree *redblacktree.Tree) (*SSTable, error) {
+	timestamp := time.Now().UnixNano()
+	filePath := filepath.Join(directory, fmt.Sprintf("%v.ss", timestamp))
+	sst := NewSSTable(filePath)
+
+	file, err := os.Create(sst.Filename)
+	if err != nil {
+		// error happened skip this and try again on the next iteration
+		utils.PrintDebug("error creating sstable: %s", err)
+		return nil, err
+	}
+	defer file.Close()
+
+	var entrs []*entries.Entry
+	iter := tree.Iterator()
+	for iter.Next() {
+		entrs = append(entrs, &entries.Entry{
+			Key:   iter.Key().(string),
+			Value: iter.Value().(string),
+		})
+	}
+
+	offset := int64(0)
+	for _, e := range entrs {
+		// a bloom filter is just a optimization to that helps finding out
+		// if a value has already been seen.
+		sst.BloomFilter.Add([]byte(e.Key))
+		inBinary := e.ToBinary()
+		file.Write(inBinary)
+
+		// construct the parse index
+		sst.offsets[e.Key] = offset
+		offset += int64(len(inBinary))
+	}
+
+	return sst, nil
+}

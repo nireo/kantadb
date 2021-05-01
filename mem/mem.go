@@ -187,3 +187,8 @@ func (m *MEM) Remove() error {
 func (m *MEM) DeleteLogFile() error {
 	return os.Remove(m.logFilePath)
 }
+
+// GetTree returns the tree of the table. This is used for copying the data for flushing
+func (m *MEM) GetTree() *redblacktree.Tree {
+	return m.tree
+}

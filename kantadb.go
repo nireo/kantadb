@@ -41,7 +41,9 @@ type DB struct {
 	MEMQueue     []*mem.MEM
 	maxQueueSize int
 
-	writeChan chan *WRequest
+	writeChan  chan *WRequest
+	flushIndex chan int
+	flushTree  chan *redblacktree.Tree
 }
 
 type WRequest struct {
@@ -92,6 +94,9 @@ func New(config *Config) *DB {
 		ssdir:        conf.StorageDir,
 		maxMEMsize:   conf.MaxMemSize,
 		maxQueueSize: 30,
+		writeChan:    make(chan *WRequest),
+		flushIndex:   make(chan int),
+		flushTree:    make(chan *redblacktree.Tree),
 	}
 }
 
@@ -121,6 +126,7 @@ func (db *DB) Run() error {
 	// tables into sstables.
 	go db.handleQueue()
 	go db.handleWrites()
+	go db.handleFlushIndex()
 
 	return nil
 }
@@ -203,6 +209,37 @@ func (db *DB) handleWrites() {
 
 			entry.errChan <- nil
 		}
+	}
+}
+
+// handleFlushIndex checks the flush index channel for the index of a flushed table.
+// This is used rather than sending the table directly to a flush queue since then we can read
+// the values from the flush queue
+func (db *DB) handleFlushIndex() {
+	for {
+		queueMutex.Lock()
+		index := <-db.flushIndex
+		copy(db.MEMQueue[index:], db.MEMQueue[index+1:]) // Shift a[i+1:] left one index.
+		db.MEMQueue[len(db.MEMQueue)-1] = nil            // Erase last element (write zero value).
+		db.MEMQueue = db.MEMQueue[:len(db.MEMQueue)-1]   // Truncate slice.
+		queueMutex.Unlock()
+	}
+}
+
+// handleTreeFlush handles trees sent into the flushTree channel and then writes
+// them to disk.
+func (db *DB) handleTreeFlush() {
+	for {
+		tree := <-db.flushTree
+		sst, err := sstable.FromTree(db.ssdir, tree)
+		if err != nil {
+			utils.PrintDebug("could not write tree to sstable: %s", err)
+			continue
+		}
+
+		ssListMutex.Lock()
+		db.SSTables = append([]*sstable.SSTable{sst}, db.SSTables...)
+		ssListMutex.Unlock()
 	}
 }
 
